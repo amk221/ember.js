@@ -1,13 +1,13 @@
-/* eslint-env node */
+'use strict';
 
-var stringUtil         = require('ember-cli-string-utils');
-var validComponentName = require('ember-cli-valid-component-name');
-var getPathOption      = require('ember-cli-get-component-path-option');
-var path               = require('path');
-var normalizeEntityName = require('ember-cli-normalize-entity-name');
+const path = require('path');
+const stringUtil = require('ember-cli-string-utils');
+const getPathOption = require('ember-cli-get-component-path-option');
+const normalizeEntityName = require('ember-cli-normalize-entity-name');
+const useEditionDetector = require('../edition-detector');
 
-module.exports = {
-  description: 'Generates a component. Name must contain a hyphen.',
+module.exports = useEditionDetector({
+  description: 'Generates a component.',
 
   fileMapTokens: function() {
     return {
@@ -28,29 +28,49 @@ module.exports = {
           return path.join('lib', options.inRepoAddon, 'app');
         }
         return 'app';
-      }
+      },
+      __templatepath__: function(options) {
+        if (options.pod) {
+          return path.join(options.podPath, options.locals.path, options.dasherizedModuleName);
+        }
+        return 'templates/components';
+      },
+      __templatename__: function(options) {
+        if (options.pod) {
+          return 'template';
+        }
+        return options.dasherizedModuleName;
+      },
     };
   },
 
   normalizeEntityName: function(entityName) {
-    entityName = normalizeEntityName(entityName);
-
-    return validComponentName(entityName);
+    return normalizeEntityName(entityName);
   },
 
   locals: function(options) {
-    var addonRawName   = options.inRepoAddon ? options.inRepoAddon : options.project.name();
-    var addonName      = stringUtil.dasherize(addonRawName);
-    var fileName       = stringUtil.dasherize(options.entity.name);
-    var importPathName       = [addonName, 'components', fileName].join('/');
+    let addonRawName = options.inRepoAddon ? options.inRepoAddon : options.project.name();
+    let addonName = stringUtil.dasherize(addonRawName);
+    let fileName = stringUtil.dasherize(options.entity.name);
+    let importPathName = [addonName, 'components', fileName].join('/');
+    let templatePath = '';
 
     if (options.pod) {
       importPathName = [addonName, 'components', fileName, 'component'].join('/');
     }
 
+    if (this.project.isEmberCLIAddon() || (options.inRepoAddon && !options.inDummy)) {
+      if (options.pod) {
+        templatePath = './template';
+      } else {
+        templatePath = [addonName, 'templates/components', fileName].join('/');
+      }
+    }
+
     return {
       modulePath: importPathName,
-      path: getPathOption(options)
+      templatePath,
+      path: getPathOption(options),
     };
-  }
-};
+  },
+});

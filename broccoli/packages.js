@@ -1,56 +1,48 @@
 'use strict';
-/* eslint-env node */
-const { readFileSync } = require('fs');
+
+const { readFileSync, existsSync } = require('fs');
 const path = require('path');
 const Rollup = require('broccoli-rollup');
 const Funnel = require('broccoli-funnel');
+const MergeTrees = require('broccoli-merge-trees');
+const Babel = require('broccoli-babel-transpiler');
+const typescript = require('broccoli-typescript-compiler').default;
+const BroccoliDebug = require('broccoli-debug');
 const findLib = require('./find-lib');
+const findPackage = require('./find-package');
 const funnelLib = require('./funnel-lib');
 const { VERSION } = require('./version');
+const PackageJSONWriter = require('./package-json-writer');
 const WriteFile = require('broccoli-file-creator');
 const StringReplace = require('broccoli-string-replace');
-const { RELEASE, DEBUG, toConst } = require('./features');
 const GlimmerTemplatePrecompiler = require('./glimmer-template-compiler');
 const VERSION_PLACEHOLDER = /VERSION_STRING_PLACEHOLDER/g;
-const { stripIndent } = require('common-tags');
-const toES5 = require('./to-es5');
+const canaryFeatures = require('./canary-features');
+const injectNodeGlobals = require('./transforms/inject-node-globals');
+
+const debugTree = BroccoliDebug.buildDebugCallback('ember-source');
 
 module.exports.routerES = function _routerES() {
-  return new Rollup(findLib('router_js', 'lib'), {
+  return new Rollup(findLib('router_js'), {
     rollup: {
       external: ['route-recognizer', 'rsvp'],
-      entry: 'router.js',
-      plugins: [{
-        transform(code, id) {
-          if (/[^t][^e][^r]\/router\.js$/.test(id)) {
-            code += 'export { Transition } from \'./router/transition\';\n'
-          } else if (/\/router\/handler-info\/[^\/]+\.js$/.test(id)) {
-            code = code.replace(/\'router\//g, '\'../');
-          }
-          code = code.replace(/import\ Promise\ from \'rsvp\/promise\'/g, 'import { Promise } from \'rsvp\'')
-          return {
-            code: code,
-            map: { mappings: '' }
-          };
-        }
-      }],
-      targets: [{
-        dest: 'router.js',
-        format: 'es'
-      }]
+      input: 'index.js',
+      output: {
+        file: 'router_js.js',
+        format: 'es',
+      },
     },
-    annotation: 'router.js'
+    annotation: 'router.js',
   });
-}
-
+};
 
 module.exports.jquery = function _jquery() {
   return new Funnel(findLib('jquery'), {
     files: ['jquery.js'],
     destDir: 'jquery',
-    annotation: 'jquery'
+    annotation: 'jquery',
   });
-}
+};
 
 module.exports.internalLoader = function _internalLoader() {
   return new Funnel('packages/loader/lib', {
@@ -58,250 +50,288 @@ module.exports.internalLoader = function _internalLoader() {
     getDestinationPath() {
       return 'loader.js';
     },
-    annotation: 'internal loader'
+    annotation: 'internal loader',
   });
-}
+};
 
 module.exports.qunit = function _qunit() {
-  return new Funnel(findLib('qunitjs'), {
+  return new Funnel(findLib('qunit'), {
     files: ['qunit.js', 'qunit.css'],
     destDir: 'qunit',
-    annotation: 'qunit'
+    annotation: 'qunit',
   });
-}
+};
 
-module.exports.emberGlimmerES = function _emberGlimmerES() {
-  let pkg = new Funnel('packages/ember-glimmer/lib', {
-    include: ['**/*.js', '**/*.hbs'],
-    destDir: 'ember-glimmer'
+module.exports.getPackagesES = function getPackagesES() {
+  let input = new Funnel(`packages`, {
+    exclude: ['loader/**', 'external-helpers/**'],
+    destDir: `packages`,
   });
 
-  return new GlimmerTemplatePrecompiler(pkg, {
+  let debuggedInput = debugTree(input, `get-packages-es:input`);
+
+  let compiledTemplatesAndTypescript = new GlimmerTemplatePrecompiler(debuggedInput, {
     persist: true,
     glimmer: require('@glimmer/compiler'),
-    annotation: 'ember-glimmer es'
+    annotation: `get-packages-es templates -> es`,
   });
-}
+
+  let debuggedCompiledTemplatesAndTypeScript = debugTree(
+    compiledTemplatesAndTypescript,
+    `get-packages-es:templates-output`
+  );
+
+  let nonTypeScriptContents = debugTree(
+    new Funnel(debuggedCompiledTemplatesAndTypeScript, {
+      srcDir: 'packages',
+      exclude: ['**/*.ts'],
+    }),
+    'get-packages-es:js:output'
+  );
+
+  let typescriptContents = new Funnel(debuggedCompiledTemplatesAndTypeScript, {
+    include: ['**/*.ts'],
+  });
+
+  let typescriptCompiled = typescript(debugTree(typescriptContents, `get-packages-es:ts:input`), {
+    compilerOptions: {
+      sourceMap: false,
+    },
+  });
+
+  let debuggedCompiledTypescript = debugTree(typescriptCompiled, `get-packages-es:ts:output`);
+
+  let mergedFinalOutput = new MergeTrees([nonTypeScriptContents, debuggedCompiledTypescript], {
+    overwrite: true,
+  });
+
+  let packageJSON = debugTree(
+    new PackageJSONWriter(mergedFinalOutput),
+    `get-packages-es:package-json`
+  );
+
+  mergedFinalOutput = canaryFeatures(
+    new MergeTrees([mergedFinalOutput, packageJSON], { overwrite: true })
+  );
+
+  return debugTree(mergedFinalOutput, `get-packages-es:output`);
+};
 
 module.exports.handlebarsES = function _handlebars() {
   return new Rollup(findLib('handlebars', 'lib'), {
+    annotation: 'handlebars',
     rollup: {
-      entry: 'handlebars/compiler/base.js',
-      dest: 'handlebars.js',
-      format: 'es',
-      exports: 'named',
-      plugins: [handlebarsFix()]
+      input: 'handlebars/compiler/base.js',
+      output: {
+        file: 'handlebars.js',
+        format: 'es',
+        exports: 'named',
+      },
+      plugins: [handlebarsFix()],
     },
-    annotation: 'handlebars'
-  })
-}
+  });
+};
 
 function handlebarsFix() {
-  var HANDLEBARS_PARSER = /[\/\\]parser.js$/;
+  let HANDLEBARS_PARSER = /[/\\]parser.js$/;
   return {
     load: function(id) {
       if (HANDLEBARS_PARSER.test(id)) {
-        var code = readFileSync(id, 'utf8');
+        let code = readFileSync(id, 'utf8');
         return {
           code: code
             .replace('exports.__esModule = true;', '')
-            .replace('exports[\'default\'] = handlebars;', 'export default handlebars;'),
+            .replace("exports['default'] = handlebars;", 'export default handlebars;'),
 
-          map: { mappings: null }
+          map: { mappings: null },
         };
       }
-    }
-  }
+    },
+  };
 }
 
 module.exports.rsvpES = function _rsvpES() {
   let lib = path.resolve(path.dirname(require.resolve('rsvp')), '../lib');
   return new Rollup(lib, {
+    annotation: 'rsvp.js',
     rollup: {
-      entry: 'rsvp.js',
-      dest: 'rsvp.js',
-      format: 'es',
-      exports: 'named'
+      input: 'rsvp.js',
+      output: {
+        file: 'rsvp.js',
+        format: 'es',
+        exports: 'named',
+      },
     },
-    annotation: 'rsvp.js'
   });
-}
+};
 
 module.exports.backburnerES = function _backburnerES() {
   return funnelLib('backburner.js', 'dist/es6', {
     files: ['backburner.js'],
-    annotation: 'backburner es'
+    annotation: 'backburner es',
   });
-}
+};
 
 module.exports.dagES = function _dagES() {
-  return funnelLib('dag-map', {
+  let lib = funnelLib('dag-map', {
     files: ['dag-map.js'],
-    annotation: 'dag-map es'
+    annotation: 'dag-map es',
   });
-}
+
+  return new StringReplace(lib, {
+    files: ['dag-map.js'],
+    patterns: [
+      {
+        match: /\/\/# sourceMappingURL=dag-map.js.map/g,
+        replacement: '',
+      },
+    ],
+    annotation: 'remove sourcemap annotation (dag-map)',
+  });
+};
 
 module.exports.routeRecognizerES = function _routeRecognizerES() {
   return funnelLib('route-recognizer', {
     files: ['route-recognizer.es.js'],
     getDestinationPath() {
-      return 'route-recognizer.js'
+      return 'route-recognizer.js';
     },
-    annotation: 'route-recognizer es'
+    annotation: 'route-recognizer es',
   });
-}
-
+};
 
 module.exports.simpleHTMLTokenizerES = function _simpleHTMLTokenizerES() {
-  return new Rollup(findLib('simple-html-tokenizer', 'dist/es6'), {
+  let packageInfo = findPackage('simple-html-tokenizer', '@glimmer/syntax');
+  let moduleInfo = packageInfo.module;
+  return new Rollup(moduleInfo.dir, {
+    annotation: 'simple-html-tokenizer es',
     rollup: {
-      entry: 'index.js',
-      dest: 'simple-html-tokenizer.js',
-      format: 'es',
-      exports: 'named'
+      input: moduleInfo.base,
+      output: {
+        file: 'simple-html-tokenizer.js',
+        format: 'es',
+        exports: 'named',
+      },
     },
-    annotation: 'simple-html-tokenizer es'
-  })
+  });
+};
+
+const _glimmerTrees = new Map();
+
+function rollupGlimmerPackage(pkg) {
+  let name = pkg.name;
+  let tree = _glimmerTrees.get(name);
+
+  // @glimmer/debug and @glimmer/local-debug-flags are external dependencies,
+  // but exist in dev-dependencies because they are fully removed before
+  // publishing. Including them here allows Rollup to work for local builds.
+  let externalDeps = (pkg.dependencies || []).concat([
+    '@glimmer/debug',
+    '@glimmer/local-debug-flags',
+  ]);
+
+  if (tree === undefined) {
+    tree = new Rollup(pkg.module.dir, {
+      rollup: {
+        input: pkg.module.base,
+        external: externalDeps,
+        output: {
+          file: name + '.js',
+          format: 'es',
+        },
+      },
+      annotation: name,
+    });
+    _glimmerTrees.set(name, tree);
+  }
+  return tree;
 }
 
-module.exports.emberPkgES = function _emberPkgES(name, rollup, externs) {
-  if (rollup) {
-    return new Rollup(`packages/${name}/lib`, {
-      rollup: {
-        entry: 'index.js',
-        dest: `${name}.js`,
-        external: externs,
-        format: 'es',
-        exports: 'named'
-      },
-      annotation: `rollup ${name}`
-    });
+function glimmerTrees(entries) {
+  let seen = new Set();
+
+  let trees = [];
+  let queue = Array.isArray(entries) ? entries.slice() : [entries];
+  let name;
+  while ((name = queue.pop()) !== undefined) {
+    if (seen.has(name)) {
+      continue;
+    }
+    seen.add(name);
+
+    if (!name.startsWith('@glimmer/') && !name.startsWith('@simple-dom/')) {
+      continue;
+    }
+
+    let pkg = findPackage(name);
+
+    if (pkg.module && existsSync(pkg.module.path)) {
+      trees.push(rollupGlimmerPackage(pkg));
+    }
+
+    let dependencies = pkg.dependencies;
+    if (dependencies) {
+      queue.push(...dependencies);
+    }
+  }
+  return new Babel(new MergeTrees(trees), {
+    sourceMaps: true,
+    plugins: [
+      // ensures `@glimmer/compiler` requiring `crypto` works properly
+      // in both browser and node-land
+      injectNodeGlobals,
+    ],
+  });
+}
+
+module.exports.glimmerCompilerES = () => {
+  return glimmerTrees(['@glimmer/compiler']);
+};
+
+module.exports.glimmerES = function glimmerES(environment) {
+  let glimmerEntries = [
+    '@glimmer/node',
+    '@simple-dom/document',
+    '@glimmer/opcode-compiler',
+    '@glimmer/runtime',
+  ];
+
+  if (environment === 'development') {
+    let hasGlimmerDebug = true;
+    try {
+      require.resolve('@glimmer/debug'); // eslint-disable-line node/no-missing-require
+    } catch (e) {
+      hasGlimmerDebug = false;
+    }
+    if (hasGlimmerDebug) {
+      glimmerEntries.push('@glimmer/debug', '@glimmer/local-debug-flags');
+    }
   }
 
-  return new Funnel(`packages/${name}/lib`, {
-    exclude: ['.gitkeep'],
-    destDir: name,
-    annotation: `${name} es`
-  });
-}
-
-module.exports.glimmerPkgES = function _glimmerPkgES(name, externs = []) {
-  return new Rollup(findLib(name, 'dist/modules/es5'), {
-    rollup: {
-      entry: 'index.js',
-      dest: `${name}.js`,
-      external: externs,
-      format: 'es',
-      exports: 'named'
-    },
-    annotation: `${name} es`
-  });
-}
-
-module.exports.emberTestsES = function _emberTestES(name) {
-  return new Funnel(`packages/${name}/tests`, {
-    exclude: ['.gitkeep'],
-    destDir: `${name}/tests`,
-    annotation: `${name} tests es`
-  });
-}
-
-module.exports.nodeModuleUtils = function _nodeModuleUtils() {
-  return new Funnel('packages/node-module/lib', {
-    files: ['node-module.js']
-  });
-}
+  return glimmerTrees(glimmerEntries);
+};
 
 module.exports.emberVersionES = function _emberVersionES() {
   let content = 'export default ' + JSON.stringify(VERSION) + ';\n';
   return new WriteFile('ember/version.js', content, {
-    annotation: 'ember/version'
+    annotation: 'ember/version',
   });
-}
+};
 
 module.exports.emberLicense = function _emberLicense() {
   let license = new Funnel('generators', {
     files: ['license.js'],
-    annotation: 'license'
+    annotation: 'license',
   });
 
   return new StringReplace(license, {
     files: ['license.js'],
-    patterns: [{
-      match: VERSION_PLACEHOLDER,
-      replacement: VERSION
-    }],
-    annotation: 'license'
+    patterns: [
+      {
+        match: VERSION_PLACEHOLDER,
+        replacement: VERSION,
+      },
+    ],
+    annotation: 'license',
   });
-}
-
-module.exports.emberFeaturesES = function _emberFeaturesES(production = false) {
-  let FEATURES = production ? RELEASE : DEBUG;
-  let content = stripIndent`
-    import { ENV } from 'ember-environment';
-    import { assign } from 'ember-utils';
-    export const DEFAULT_FEATURES = ${JSON.stringify(FEATURES)};
-    export const FEATURES = assign(DEFAULT_FEATURES, ENV.FEATURES);
-
-
-    ${Object.keys(toConst(FEATURES)).map((FEATURE) => {
-      return `export const ${FEATURE} = FEATURES["${FEATURE.replace(/_/g, '-').toLowerCase()}"];`
-    }).join('\n')}
-  `;
-
-  return new WriteFile('ember/features.js', content, {
-    annotation: `ember/features ${production ? 'production' : 'debug' }`
-  });
-}
-
-module.exports.packageManagerJSONs = function _packageManagerJSONs() {
-  var packageJsons = new Funnel('config/package_manager_files', {
-    include: ['*.json'],
-    destDir: '/',
-    annotation: 'package.json'
-  });
-
-  packageJsons = new StringReplace(packageJsons, {
-    patterns: [{
-      match: VERSION_PLACEHOLDER,
-      replacement: VERSION
-    }],
-    files: ['*.json']
-  });
-  packageJsons._annotation = 'package.json VERSION';
-  return packageJsons;
-}
-
-module.exports.nodeTests = function _nodeTests() {
-  return new Funnel('tests', {
-    include: ['**/*/*.js']
-  });
-}
-
-module.exports.rollupEmberMetal = function _rollupEmberMetal(tree, options) {
-  options = Object.assign({ transformModules: false, annotation: 'ember metal' }, options);
-  let emberMetalES5 = toES5(tree, options);
-  return toES5(new Rollup(emberMetalES5, {
-    rollup: {
-      entry: `index.js`,
-      dest: `ember-metal.js`,
-      moduleId: 'ember-metal',
-      external: [
-        'node-module',
-        'ember-babel',
-        'ember-debug',
-        'ember-environment',
-        'ember-utils',
-        '@glimmer/reference',
-        'require',
-        'backburner',
-        'ember-console',
-        'ember-env-flags',
-        'ember/features'
-      ],
-      format: 'amd',
-      exports: 'named'
-    },
-    annotation: `rollup ember-metal`
-  }), { transformDefine: true });
-}
+};

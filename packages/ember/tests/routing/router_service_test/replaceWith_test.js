@@ -1,36 +1,36 @@
-import { NoneLocation } from 'ember-routing';
-import {
-  RouterTestCase,
-  moduleFor
-} from 'internal-test-helpers';
-import { Transition } from 'router';
+import { NoneLocation } from '@ember/-internals/routing';
+import { RouterTestCase, moduleFor } from 'internal-test-helpers';
+import { InternalTransition as Transition } from 'router_js';
+import Controller from '@ember/controller';
 
-import { EMBER_ROUTING_ROUTER_SERVICE } from 'ember/features';
-
-if (EMBER_ROUTING_ROUTER_SERVICE) {
-  moduleFor('Router Service - replaceWith', class extends RouterTestCase {
+moduleFor(
+  'Router Service - replaceWith',
+  class extends RouterTestCase {
     constructor() {
-      super();
+      super(...arguments);
 
       let testCase = this;
       testCase.state = [];
 
-      this.add('location:test', NoneLocation.extend({
-        setURL(path) {
-          testCase.state.push(path);
-          this.set('path', path);
-        },
+      this.add(
+        'location:test',
+        NoneLocation.extend({
+          setURL(path) {
+            testCase.state.push(path);
+            this.set('path', path);
+          },
 
-        replaceURL(path) {
-          testCase.state.splice(testCase.state.length -1, 1, path);
-          this.set('path', path);
-        }
-      }));
+          replaceURL(path) {
+            testCase.state.splice(testCase.state.length - 1, 1, path);
+            this.set('path', path);
+          },
+        })
+      );
     }
 
     get routerOptions() {
       return {
-        location: 'test'
+        location: 'test',
       };
     }
 
@@ -39,14 +39,13 @@ if (EMBER_ROUTING_ROUTER_SERVICE) {
 
       let transition;
 
-      return this.visit('/')
-        .then(() => {
-          transition = this.routerService.replaceWith('parent.child');
+      return this.visit('/').then(() => {
+        transition = this.routerService.replaceWith('parent.child');
 
-          assert.ok(transition instanceof Transition);
+        assert.ok(transition instanceof Transition);
 
-          return transition;
-        });
+        return transition;
+      });
     }
 
     ['@test RouterService#replaceWith with basic route replaces location'](assert) {
@@ -85,7 +84,9 @@ if (EMBER_ROUTING_ROUTER_SERVICE) {
         });
     }
 
-    ['@test RouterService#replaceWith transitioning back to previously visited route replaces location'](assert) {
+    ['@test RouterService#replaceWith transitioning back to previously visited route replaces location'](
+      assert
+    ) {
       assert.expect(1);
 
       return this.visit('/')
@@ -105,5 +106,35 @@ if (EMBER_ROUTING_ROUTER_SERVICE) {
           assert.deepEqual(this.state, ['/', '/child', '/sister', '/sister']);
         });
     }
-  });
-}
+
+    ['@test RouterService#replaceWith with basic query params does not remove query param defaults'](
+      assert
+    ) {
+      assert.expect(1);
+
+      this.add(
+        'controller:parent.child',
+        Controller.extend({
+          queryParams: ['sort'],
+          sort: 'ASC',
+        })
+      );
+
+      let queryParams = this.buildQueryParams({ sort: 'ASC' });
+
+      return this.visit('/')
+        .then(() => {
+          return this.routerService.transitionTo('parent.brother');
+        })
+        .then(() => {
+          return this.routerService.replaceWith('parent.sister');
+        })
+        .then(() => {
+          return this.routerService.replaceWith('parent.child', queryParams);
+        })
+        .then(() => {
+          assert.deepEqual(this.state, ['/', '/child?sort=ASC']);
+        });
+    }
+  }
+);

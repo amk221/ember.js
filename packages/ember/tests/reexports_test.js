@@ -1,251 +1,337 @@
 import Ember from '../index';
+import { FEATURES, EMBER_GLIMMER_SET_COMPONENT_TEMPLATE } from '@ember/canary-features';
 import { confirmExport } from 'internal-test-helpers';
-import { EMBER_METAL_WEAKMAP } from 'ember/features';
-import { DEBUG } from 'ember-env-flags';
+import { moduleFor, AbstractTestCase } from 'internal-test-helpers';
+import { jQueryDisabled, jQuery } from '@ember/-internals/views';
+import Resolver from '@ember/application/globals-resolver';
 
-QUnit.module('ember reexports');
+moduleFor(
+  'ember reexports',
+  class extends AbstractTestCase {
+    [`@test Ember exports correctly`](assert) {
+      allExports.forEach(reexport => {
+        let [path, moduleId, exportName] = reexport;
 
-[
-  // ember-utils
-  ['getOwner', 'ember-utils', 'getOwner'],
-  ['setOwner', 'ember-utils', 'setOwner'],
-  ['assign', 'ember-utils'],
-  ['GUID_KEY', 'ember-utils'],
-  ['uuid', 'ember-utils'],
-  ['generateGuid', 'ember-utils'],
-  ['guidFor', 'ember-utils'],
-  ['inspect', 'ember-utils'],
-  ['makeArray', 'ember-utils'],
-  ['canInvoke', 'ember-utils'],
-  ['tryInvoke', 'ember-utils'],
-  ['wrap', 'ember-utils'],
-  ['applyStr', 'ember-utils'],
+        // default path === exportName if none present
+        if (!exportName) {
+          exportName = path;
+        }
 
-  // ember-environment
-  // ['ENV', 'ember-environment', 'ENV'], TODO: fix this, its failing because we are hitting the getter
+        confirmExport(Ember, assert, path, moduleId, exportName, `Ember.${path} exports correctly`);
+      });
+    }
 
-  // container
-  ['Registry', 'container', 'Registry'],
-  ['Container', 'container', 'Container'],
+    ['@test Ember.String.isHTMLSafe exports correctly'](assert) {
+      confirmExport(Ember, assert, 'String.isHTMLSafe', '@ember/-internals/glimmer', 'isHTMLSafe');
+    }
 
-  // ember-debug
-  ['deprecateFunc', 'ember-debug'],
-  ['deprecate', 'ember-debug'],
-  ['assert', 'ember-debug'],
-  ['warn', 'ember-debug'],
-  ['debug', 'ember-debug'],
-  ['runInDebug', 'ember-debug'],
+    ['@test Ember.EXTEND_PROTOTYPES is present (but deprecated)'](assert) {
+      expectDeprecation(() => {
+        assert.strictEqual(
+          Ember.ENV.EXTEND_PROTOTYPES,
+          Ember.EXTEND_PROTOTYPES,
+          'Ember.EXTEND_PROTOTYPES exists'
+        );
+      }, /EXTEND_PROTOTYPES is deprecated/);
+    }
 
-  // ember-metal
-  ['computed', 'ember-metal'],
-  ['computed.alias', 'ember-metal', 'alias'],
-  ['ComputedProperty', 'ember-metal'],
-  ['cacheFor', 'ember-metal'],
-  ['merge', 'ember-metal'],
-  ['instrument', 'ember-metal'],
-  ['Instrumentation.instrument', 'ember-metal', 'instrument'],
-  ['Instrumentation.subscribe', 'ember-metal', 'instrumentationSubscribe'],
-  ['Instrumentation.unsubscribe', 'ember-metal', 'instrumentationUnsubscribe'],
-  ['Instrumentation.reset', 'ember-metal', 'instrumentationReset'],
-  ['testing', 'ember-debug', { get: 'isTesting', set: 'setTesting' }],
-  ['onerror', 'ember-metal', { get: 'getOnerror', set: 'setOnerror' }],
-  // ['create'], TODO: figure out what to do here
-  // ['keys'], TODO: figure out what to do here
-  ['FEATURES', 'ember/features'],
-  ['FEATURES.isEnabled', 'ember-debug', 'isFeatureEnabled'],
-  ['Error', 'ember-debug'],
-  ['META_DESC', 'ember-metal'],
-  ['meta', 'ember-metal'],
-  ['get', 'ember-metal'],
-  ['set', 'ember-metal'],
-  ['_getPath', 'ember-metal'],
-  ['getWithDefault', 'ember-metal'],
-  ['trySet', 'ember-metal'],
-  ['_Cache', 'ember-metal', 'Cache'],
-  ['on', 'ember-metal'],
-  ['addListener', 'ember-metal'],
-  ['removeListener', 'ember-metal'],
-  ['_suspendListener', 'ember-metal', 'suspendListener'],
-  ['_suspendListeners', 'ember-metal', 'suspendListeners'],
-  ['sendEvent', 'ember-metal'],
-  ['hasListeners', 'ember-metal'],
-  ['watchedEvents', 'ember-metal'],
-  ['listenersFor', 'ember-metal'],
-  ['accumulateListeners', 'ember-metal'],
-  ['isNone', 'ember-metal'],
-  ['isEmpty', 'ember-metal'],
-  ['isBlank', 'ember-metal'],
-  ['isPresent', 'ember-metal'],
+    '@test Ember.FEATURES is exported'(assert) {
+      for (let feature in FEATURES) {
+        assert.equal(
+          Ember.FEATURES[feature],
+          FEATURES[feature],
+          'Ember.FEATURES contains ${feature} with correct value'
+        );
+      }
+    }
+
+    ['@test Ember.Resolver is present (but deprecated)'](assert) {
+      expectDeprecation(() => {
+        assert.strictEqual(Ember.Resolver, Resolver, 'Ember.Resolver exists');
+      }, /Using the globals resolver is deprecated/);
+    }
+
+    ['@test Ember.DefaultResolver is present (but deprecated)'](assert) {
+      expectDeprecation(() => {
+        assert.strictEqual(Ember.DefaultResolver, Resolver, 'Ember.DefaultResolver exists');
+      }, /Using the globals resolver is deprecated/);
+    }
+  }
+);
+
+if (!jQueryDisabled) {
+  moduleFor(
+    'ember reexports: jQuery enabled',
+    class extends AbstractTestCase {
+      [`@test Ember.$ is exported`](assert) {
+        expectDeprecation(() => {
+          let body = Ember.$('body').get(0);
+          assert.equal(body, document.body, 'Ember.$ exports working jQuery instance');
+        }, "Using Ember.$() has been deprecated, use `import jQuery from 'jquery';` instead");
+      }
+
+      '@test Ember.$ _**is**_ window.jQuery'(assert) {
+        expectDeprecation(() => {
+          assert.strictEqual(Ember.$, jQuery);
+        }, "Using Ember.$() has been deprecated, use `import jQuery from 'jquery';` instead");
+      }
+    }
+  );
+}
+
+let allExports = [
+  // @ember/-internals/environment
+  ['ENV', '@ember/-internals/environment', { get: 'getENV' }],
+  ['lookup', '@ember/-internals/environment', { get: 'getLookup', set: 'setLookup' }],
+
+  ['getOwner', '@ember/application', 'getOwner'],
+  ['setOwner', '@ember/application', 'setOwner'],
+  ['assign', '@ember/polyfills'],
+
+  // @ember/-internals/utils
+  ['GUID_KEY', '@ember/-internals/utils'],
+  ['uuid', '@ember/-internals/utils'],
+  ['generateGuid', '@ember/-internals/utils'],
+  ['guidFor', '@ember/-internals/utils'],
+  ['inspect', '@ember/-internals/utils'],
+  ['makeArray', '@ember/-internals/utils'],
+  ['canInvoke', '@ember/-internals/utils'],
+  ['tryInvoke', '@ember/-internals/utils'],
+  ['wrap', '@ember/-internals/utils'],
+
+  // @ember/-internals/container
+  ['Registry', '@ember/-internals/container', 'Registry'],
+  ['Container', '@ember/-internals/container', 'Container'],
+
+  // @ember/debug
+  ['deprecateFunc', '@ember/debug'],
+  ['deprecate', '@ember/debug'],
+  ['assert', '@ember/debug'],
+  ['warn', '@ember/debug'],
+  ['debug', '@ember/debug'],
+  ['runInDebug', '@ember/debug'],
+  ['Debug.registerDeprecationHandler', '@ember/debug', 'registerDeprecationHandler'],
+  ['Debug.registerWarnHandler', '@ember/debug', 'registerWarnHandler'],
+  ['Error', '@ember/error', 'default'],
+
+  // @ember/-internals/metal
+  ['computed', '@ember/-internals/metal', '_globalsComputed'],
+  ['_descriptor', '@ember/-internals/metal', 'nativeDescDecorator'],
+  ['_tracked', '@ember/-internals/metal', 'tracked'],
+  ['computed.alias', '@ember/-internals/metal', 'alias'],
+  ['ComputedProperty', '@ember/-internals/metal'],
+  ['_setClassicDecorator', '@ember/-internals/metal', 'setClassicDecorator'],
+  ['cacheFor', '@ember/-internals/metal', 'getCachedValueFor'],
+  ['merge', '@ember/polyfills'],
+  ['instrument', '@ember/instrumentation'],
+  ['subscribe', '@ember/instrumentation', 'subscribe'],
+  ['Instrumentation.instrument', '@ember/instrumentation', 'instrument'],
+  ['Instrumentation.subscribe', '@ember/instrumentation', 'subscribe'],
+  ['Instrumentation.unsubscribe', '@ember/instrumentation', 'unsubscribe'],
+  ['Instrumentation.reset', '@ember/instrumentation', 'reset'],
+  ['testing', '@ember/debug', { get: 'isTesting', set: 'setTesting' }],
+  ['onerror', '@ember/-internals/error-handling', { get: 'getOnerror', set: 'setOnerror' }],
+  ['FEATURES.isEnabled', '@ember/canary-features', 'isEnabled'],
+  ['meta', '@ember/-internals/meta'],
+  ['get', '@ember/-internals/metal'],
+  ['set', '@ember/-internals/metal'],
+  ['_getPath', '@ember/-internals/metal'],
+  ['getWithDefault', '@ember/-internals/metal'],
+  ['trySet', '@ember/-internals/metal'],
+  ['_Cache', '@ember/-internals/utils', 'Cache'],
+  ['on', '@ember/-internals/metal'],
+  ['addListener', '@ember/-internals/metal'],
+  ['removeListener', '@ember/-internals/metal'],
+  ['sendEvent', '@ember/-internals/metal'],
+  ['hasListeners', '@ember/-internals/metal'],
+  ['isNone', '@ember/-internals/metal'],
+  ['isEmpty', '@ember/-internals/metal'],
+  ['isBlank', '@ember/-internals/metal'],
+  ['isPresent', '@ember/-internals/metal'],
   ['_Backburner', 'backburner', 'default'],
-  ['run', 'ember-metal'],
-  ['_ObserverSet', 'ember-metal', 'ObserverSet'],
-  ['propertyWillChange', 'ember-metal'],
-  ['propertyDidChange', 'ember-metal'],
-  ['overrideChains', 'ember-metal'],
-  ['beginPropertyChanges', 'ember-metal'],
-  ['beginPropertyChanges', 'ember-metal'],
-  ['endPropertyChanges', 'ember-metal'],
-  ['changeProperties', 'ember-metal'],
-  ['defineProperty', 'ember-metal'],
-  ['watchKey', 'ember-metal'],
-  ['unwatchKey', 'ember-metal'],
-  ['removeChainWatcher', 'ember-metal'],
-  ['_ChainNode', 'ember-metal', 'ChainNode'],
-  ['finishChains', 'ember-metal'],
-  ['watchPath', 'ember-metal'],
-  ['unwatchPath', 'ember-metal'],
-  ['watch', 'ember-metal'],
-  ['isWatching', 'ember-metal'],
-  ['unwatch', 'ember-metal'],
-  ['destroy', 'ember-metal'],
-  ['libraries', 'ember-metal'],
-  ['OrderedSet', 'ember-metal'],
-  ['Map', 'ember-metal'],
-  ['MapWithDefault', 'ember-metal'],
-  ['getProperties', 'ember-metal'],
-  ['setProperties', 'ember-metal'],
-  ['expandProperties', 'ember-metal'],
-  ['NAME_KEY', 'ember-utils'],
-  ['addObserver', 'ember-metal'],
-  ['observersFor', 'ember-metal'],
-  ['removeObserver', 'ember-metal'],
-  ['_suspendObserver', 'ember-metal'],
-  ['_suspendObservers', 'ember-metal'],
-  ['required', 'ember-metal'],
-  ['aliasMethod', 'ember-metal'],
-  ['observer', 'ember-metal'],
-  ['immediateObserver', 'ember-metal', '_immediateObserver'],
-  ['mixin', 'ember-metal'],
-  ['Mixin', 'ember-metal'],
-  ['bind', 'ember-metal'],
-  ['Binding', 'ember-metal'],
-  ['isGlobalPath', 'ember-metal'],
+  ['run', '@ember/runloop', '_globalsRun'],
+  ['run.backburner', '@ember/runloop', 'backburner'],
+  ['run.begin', '@ember/runloop', 'begin'],
+  ['run.bind', '@ember/runloop', 'bind'],
+  ['run.cancel', '@ember/runloop', 'cancel'],
+  ['run.debounce', '@ember/runloop', 'debounce'],
+  ['run.end', '@ember/runloop', 'end'],
+  ['run.hasScheduledTimers', '@ember/runloop', 'hasScheduledTimers'],
+  ['run.join', '@ember/runloop', 'join'],
+  ['run.later', '@ember/runloop', 'later'],
+  ['run.next', '@ember/runloop', 'next'],
+  ['run.once', '@ember/runloop', 'once'],
+  ['run.schedule', '@ember/runloop', 'schedule'],
+  ['run.scheduleOnce', '@ember/runloop', 'scheduleOnce'],
+  ['run.throttle', '@ember/runloop', 'throttle'],
+  ['run.currentRunLoop', '@ember/runloop', { get: 'getCurrentRunLoop' }],
+  ['run.cancelTimers', '@ember/runloop', 'cancelTimers'],
+  ['notifyPropertyChange', '@ember/-internals/metal'],
+  ['beginPropertyChanges', '@ember/-internals/metal'],
+  ['endPropertyChanges', '@ember/-internals/metal'],
+  ['changeProperties', '@ember/-internals/metal'],
+  ['platform.defineProperty', null, { value: true }],
+  ['platform.hasPropertyAccessors', null, { value: true }],
+  ['defineProperty', '@ember/-internals/metal'],
+  ['destroy', '@ember/-internals/metal', 'destroy'],
+  ['libraries', '@ember/-internals/metal'],
+  ['getProperties', '@ember/-internals/metal'],
+  ['setProperties', '@ember/-internals/metal'],
+  ['expandProperties', '@ember/-internals/metal'],
+  ['addObserver', '@ember/-internals/metal'],
+  ['removeObserver', '@ember/-internals/metal'],
+  ['aliasMethod', '@ember/-internals/metal'],
+  ['observer', '@ember/-internals/metal'],
+  ['mixin', '@ember/-internals/metal'],
+  ['Mixin', '@ember/-internals/metal'],
 
-  // ember-views
-  ['$', 'ember-views', 'jQuery'],
-  ['ViewUtils.isSimpleClick', 'ember-views', 'isSimpleClick'],
-  ['ViewUtils.getViewElement', 'ember-views', 'getViewElement'],
-  ['ViewUtils.getViewBounds', 'ember-views', 'getViewBounds'],
-  ['ViewUtils.getViewClientRects', 'ember-views', 'getViewClientRects'],
-  ['ViewUtils.getViewBoundingClientRect', 'ember-views', 'getViewBoundingClientRect'],
-  ['ViewUtils.getRootViews', 'ember-views', 'getRootViews'],
-  ['ViewUtils.getChildViews', 'ember-views', 'getChildViews'],
-  ['TextSupport', 'ember-views'],
-  ['ComponentLookup', 'ember-views'],
-  ['EventDispatcher', 'ember-views'],
+  // @ember/-internals/console
+  ['Logger', '@ember/-internals/console', 'default'],
 
-  // ember-glimmer
-  ['Component',     'ember-glimmer', 'Component'],
-  ['Helper',        'ember-glimmer', 'Helper'],
-  ['Helper.helper', 'ember-glimmer', 'helper'],
-  ['Checkbox',      'ember-glimmer', 'Checkbox'],
-  ['LinkComponent', 'ember-glimmer', 'LinkComponent'],
-  ['TextArea',      'ember-glimmer', 'TextArea'],
-  ['TextField',     'ember-glimmer', 'TextField'],
-  ['TEMPLATES',     'ember-glimmer', { get: 'getTemplates', set: 'setTemplates' }],
-  ['Handlebars.template', 'ember-glimmer', 'template'],
-  ['Handlebars.SafeString', 'ember-glimmer', { get: '_getSafeString' }],
-  ['Handlebars.Utils.escapeExpression', 'ember-glimmer', 'escapeExpression'],
-  ['String.htmlSafe', 'ember-glimmer', 'htmlSafe'],
+  // @ember/-internals/views
+  ['ViewUtils.isSimpleClick', '@ember/-internals/views', 'isSimpleClick'],
+  ['ViewUtils.getElementView', '@ember/-internals/views', 'getElementView'],
+  ['ViewUtils.getViewElement', '@ember/-internals/views', 'getViewElement'],
+  ['ViewUtils.getViewBounds', '@ember/-internals/views', 'getViewBounds'],
+  ['ViewUtils.getViewClientRects', '@ember/-internals/views', 'getViewClientRects'],
+  ['ViewUtils.getViewBoundingClientRect', '@ember/-internals/views', 'getViewBoundingClientRect'],
+  ['ViewUtils.getRootViews', '@ember/-internals/views', 'getRootViews'],
+  ['ViewUtils.getChildViews', '@ember/-internals/views', 'getChildViews'],
+  ['ViewUtils.isSerializationFirstNode', '@ember/-internals/glimmer', 'isSerializationFirstNode'],
+  ['TextSupport', '@ember/-internals/views'],
+  ['ComponentLookup', '@ember/-internals/views'],
+  ['EventDispatcher', '@ember/-internals/views'],
 
-  // ember-runtime
-  ['_RegistryProxyMixin', 'ember-runtime', 'RegistryProxyMixin'],
-  ['_ContainerProxyMixin', 'ember-runtime', 'ContainerProxyMixin'],
-  ['Object', 'ember-runtime'],
-  ['String', 'ember-runtime'],
-  ['compare', 'ember-runtime'],
-  ['copy', 'ember-runtime'],
-  ['isEqual', 'ember-runtime'],
-  ['inject', 'ember-runtime'],
-  ['Array', 'ember-runtime'],
-  ['Comparable', 'ember-runtime'],
-  ['Namespace', 'ember-runtime'],
-  ['Enumerable', 'ember-runtime'],
-  ['ArrayProxy', 'ember-runtime'],
-  ['ObjectProxy', 'ember-runtime'],
-  ['ActionHandler', 'ember-runtime'],
-  ['CoreObject', 'ember-runtime'],
-  ['NativeArray', 'ember-runtime'],
-  ['Copyable', 'ember-runtime'],
-  ['Freezable', 'ember-runtime'],
-  ['FROZEN_ERROR', 'ember-runtime'],
-  ['MutableEnumerable', 'ember-runtime'],
-  ['MutableArray', 'ember-runtime'],
-  ['TargetActionSupport', 'ember-runtime'],
-  ['Evented', 'ember-runtime'],
-  ['PromiseProxyMixin', 'ember-runtime'],
-  ['Observable', 'ember-runtime'],
-  ['typeOf', 'ember-runtime'],
-  ['isArray', 'ember-runtime'],
-  ['Object', 'ember-runtime'],
-  ['onLoad', 'ember-runtime'],
-  ['runLoadHooks', 'ember-runtime'],
-  ['Controller', 'ember-runtime'],
-  ['ControllerMixin', 'ember-runtime'],
-  ['Service', 'ember-runtime'],
-  ['_ProxyMixin', 'ember-runtime'],
-  ['RSVP', 'ember-runtime'],
-  ['STRINGS', 'ember-runtime', { get: 'getStrings', set: 'setStrings' }],
-  ['BOOTED', 'ember-runtime', { get: 'isNamespaceSearchDisabled', set: 'setNamespaceSearchDisabled' }],
+  // @ember/-internals/glimmer
+  ['Component', '@ember/-internals/glimmer', 'Component'],
+  ['Helper', '@ember/-internals/glimmer', 'Helper'],
+  ['Helper.helper', '@ember/-internals/glimmer', 'helper'],
+  ['Checkbox', '@ember/-internals/glimmer', 'Checkbox'],
+  ['LinkComponent', '@ember/-internals/glimmer', 'LinkComponent'],
+  ['TextArea', '@ember/-internals/glimmer', 'TextArea'],
+  ['TextField', '@ember/-internals/glimmer', 'TextField'],
+  ['TEMPLATES', '@ember/-internals/glimmer', { get: 'getTemplates', set: 'setTemplates' }],
+  ['Handlebars.template', '@ember/-internals/glimmer', 'template'],
+  ['HTMLBars.template', '@ember/-internals/glimmer', 'template'],
+  ['Handlebars.Utils.escapeExpression', '@ember/-internals/glimmer', 'escapeExpression'],
+  ['String.htmlSafe', '@ember/-internals/glimmer', 'htmlSafe'],
+  ['_setComponentManager', '@ember/-internals/glimmer', 'setComponentManager'],
+  ['_componentManagerCapabilities', '@ember/-internals/glimmer', 'capabilities'],
+  EMBER_GLIMMER_SET_COMPONENT_TEMPLATE
+    ? ['_setComponentTemplate', '@ember/-internals/glimmer', 'setComponentTemplate']
+    : null,
+  EMBER_GLIMMER_SET_COMPONENT_TEMPLATE
+    ? ['_getComponentTemplate', '@ember/-internals/glimmer', 'getComponentTemplate']
+    : null,
+  EMBER_GLIMMER_SET_COMPONENT_TEMPLATE
+    ? ['_templateOnlyComponent', '@ember/component/template-only', 'default']
+    : null,
+  ['_captureRenderTree', '@ember/debug', 'captureRenderTree'],
 
-  // ember-routing
-  ['Location', 'ember-routing'],
-  ['AutoLocation', 'ember-routing'],
-  ['HashLocation', 'ember-routing'],
-  ['HistoryLocation', 'ember-routing'],
-  ['NoneLocation', 'ember-routing'],
-  ['controllerFor', 'ember-routing'],
-  ['generateControllerFactory', 'ember-routing'],
-  ['generateController', 'ember-routing'],
-  ['RouterDSL', 'ember-routing'],
-  ['Router', 'ember-routing'],
-  ['Route', 'ember-routing'],
+  // @ember/-internals/runtime
+  ['A', '@ember/-internals/runtime'],
+  ['_RegistryProxyMixin', '@ember/-internals/runtime', 'RegistryProxyMixin'],
+  ['_ContainerProxyMixin', '@ember/-internals/runtime', 'ContainerProxyMixin'],
+  ['Object', '@ember/-internals/runtime'],
+  ['String.loc', '@ember/string', 'loc'],
+  ['String.w', '@ember/string', 'w'],
+  ['String.dasherize', '@ember/string', 'dasherize'],
+  ['String.decamelize', '@ember/string', 'decamelize'],
+  ['String.camelize', '@ember/string', 'camelize'],
+  ['String.classify', '@ember/string', 'classify'],
+  ['String.underscore', '@ember/string', 'underscore'],
+  ['String.capitalize', '@ember/string', 'capitalize'],
+  ['compare', '@ember/-internals/runtime'],
+  ['copy', '@ember/-internals/runtime'],
+  ['isEqual', '@ember/-internals/runtime'],
+  ['inject.controller', '@ember/controller', 'inject'],
+  ['inject.service', '@ember/service', 'inject'],
+  ['Array', '@ember/-internals/runtime'],
+  ['Comparable', '@ember/-internals/runtime'],
+  ['Namespace', '@ember/-internals/runtime'],
+  ['Enumerable', '@ember/-internals/runtime'],
+  ['ArrayProxy', '@ember/-internals/runtime'],
+  ['ObjectProxy', '@ember/-internals/runtime'],
+  ['ActionHandler', '@ember/-internals/runtime'],
+  ['CoreObject', '@ember/-internals/runtime'],
+  ['NativeArray', '@ember/-internals/runtime'],
+  ['Copyable', '@ember/-internals/runtime'],
+  ['MutableEnumerable', '@ember/-internals/runtime'],
+  ['MutableArray', '@ember/-internals/runtime'],
+  ['TargetActionSupport', '@ember/-internals/runtime'],
+  ['Evented', '@ember/-internals/runtime'],
+  ['PromiseProxyMixin', '@ember/-internals/runtime'],
+  ['Observable', '@ember/-internals/runtime'],
+  ['typeOf', '@ember/-internals/runtime'],
+  ['isArray', '@ember/-internals/runtime'],
+  ['Object', '@ember/-internals/runtime'],
+  ['onLoad', '@ember/application'],
+  ['runLoadHooks', '@ember/application'],
+  ['Controller', '@ember/controller', 'default'],
+  ['ControllerMixin', '@ember/controller/lib/controller_mixin', 'default'],
+  ['Service', '@ember/service', 'default'],
+  ['_ProxyMixin', '@ember/-internals/runtime'],
+  ['RSVP', '@ember/-internals/runtime'],
+  ['STRINGS', '@ember/string', { get: '_getStrings', set: '_setStrings' }],
+  [
+    'BOOTED',
+    '@ember/-internals/metal',
+    { get: 'isNamespaceSearchDisabled', set: 'setNamespaceSearchDisabled' },
+  ],
+  ['_action', '@ember/object', 'action'],
+  ['_dependentKeyCompat', '@ember/object/compat', 'dependentKeyCompat'],
+  ['computed.empty', '@ember/object/computed', 'empty'],
+  ['computed.notEmpty', '@ember/object/computed', 'notEmpty'],
+  ['computed.none', '@ember/object/computed', 'none'],
+  ['computed.not', '@ember/object/computed', 'not'],
+  ['computed.bool', '@ember/object/computed', 'bool'],
+  ['computed.match', '@ember/object/computed', 'match'],
+  ['computed.equal', '@ember/object/computed', 'equal'],
+  ['computed.gt', '@ember/object/computed', 'gt'],
+  ['computed.gte', '@ember/object/computed', 'gte'],
+  ['computed.lt', '@ember/object/computed', 'lt'],
+  ['computed.lte', '@ember/object/computed', 'lte'],
+  ['computed.oneWay', '@ember/object/computed', 'oneWay'],
+  ['computed.reads', '@ember/object/computed', 'oneWay'],
+  ['computed.readOnly', '@ember/object/computed', 'readOnly'],
+  ['computed.deprecatingAlias', '@ember/object/computed', 'deprecatingAlias'],
+  ['computed.and', '@ember/object/computed', 'and'],
+  ['computed.or', '@ember/object/computed', 'or'],
+  ['computed.sum', '@ember/object/computed', 'sum'],
+  ['computed.min', '@ember/object/computed', 'min'],
+  ['computed.max', '@ember/object/computed', 'max'],
+  ['computed.map', '@ember/object/computed', 'map'],
+  ['computed.sort', '@ember/object/computed', 'sort'],
+  ['computed.setDiff', '@ember/object/computed', 'setDiff'],
+  ['computed.mapBy', '@ember/object/computed', 'mapBy'],
+  ['computed.filter', '@ember/object/computed', 'filter'],
+  ['computed.filterBy', '@ember/object/computed', 'filterBy'],
+  ['computed.uniq', '@ember/object/computed', 'uniq'],
+  ['computed.uniqBy', '@ember/object/computed', 'uniqBy'],
+  ['computed.union', '@ember/object/computed', 'union'],
+  ['computed.intersect', '@ember/object/computed', 'intersect'],
+  ['computed.collect', '@ember/object/computed', 'collect'],
+
+  // @ember/-internals/routing
+  ['Location', '@ember/-internals/routing'],
+  ['AutoLocation', '@ember/-internals/routing'],
+  ['HashLocation', '@ember/-internals/routing'],
+  ['HistoryLocation', '@ember/-internals/routing'],
+  ['NoneLocation', '@ember/-internals/routing'],
+  ['controllerFor', '@ember/-internals/routing'],
+  ['generateControllerFactory', '@ember/-internals/routing'],
+  ['generateController', '@ember/-internals/routing'],
+  ['RouterDSL', '@ember/-internals/routing'],
+  ['Router', '@ember/-internals/routing'],
+  ['Route', '@ember/-internals/routing'],
 
   // ember-application
-  ['Application', 'ember-application'],
-  ['ApplicationInstance', 'ember-application'],
-  ['Engine', 'ember-application'],
-  ['EngineInstance', 'ember-application'],
-  ['Resolver', 'ember-application'],
-  ['DefaultResolver', 'ember-application', 'Resolver'],
+  ['Application', '@ember/application', 'default'],
+  ['ApplicationInstance', '@ember/application/instance', 'default'],
+  ['Engine', '@ember/engine', 'default'],
+  ['EngineInstance', '@ember/engine/instance', 'default'],
 
-  // ember-extension-support
-  ['DataAdapter', 'ember-extension-support'],
-  ['ContainerDebugAdapter', 'ember-extension-support']
-].forEach(reexport => {
-  let [path, moduleId, exportName] = reexport;
-
-  // default path === exportName if none present
-  if (!exportName) {
-    exportName = path;
-  }
-
-  QUnit.test(`Ember.${path} exports correctly`, assert => {
-    confirmExport(Ember, assert, path, moduleId, exportName);
-  });
-});
-
-QUnit.test('Ember.String.isHTMLSafe exports correctly', function(assert) {
-  confirmExport(Ember, assert, 'String.isHTMLSafe', 'ember-glimmer', 'isHTMLSafe');
-});
-
-if (EMBER_METAL_WEAKMAP) {
-  QUnit.test('Ember.WeakMap exports correctly', function(assert) {
-    confirmExport(Ember, assert, 'WeakMap', 'ember-metal', 'WeakMap');
-  });
-}
-
-if (DEBUG) {
-  QUnit.test('Ember.MODEL_FACTORY_INJECTIONS', function(assert) {
-    let descriptor = Object.getOwnPropertyDescriptor(Ember, 'MODEL_FACTORY_INJECTIONS');
-    assert.equal(descriptor.enumerable, false, 'descriptor is not enumerable');
-    assert.equal(descriptor.configurable, false, 'descriptor is not configurable');
-
-    assert.equal(Ember.MODEL_FACTORY_INJECTIONS, false)
-
-    expectDeprecation(function() {
-      Ember.MODEL_FACTORY_INJECTIONS = true;
-    }, 'Ember.MODEL_FACTORY_INJECTIONS is no longer required')
-    assert.equal(Ember.MODEL_FACTORY_INJECTIONS, false, 'writing to the property has no affect')
-  });
-}
+  // @ember/-internals/extension-support
+  ['DataAdapter', '@ember/-internals/extension-support'],
+  ['ContainerDebugAdapter', '@ember/-internals/extension-support'],
+].filter(Boolean);

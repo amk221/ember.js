@@ -1,52 +1,34 @@
-import AbstractTestCase from './abstract';
-import TestResolver from '../test-resolver';
-import { Application } from 'ember-application';
-import { assign } from 'ember-utils';
-import { runDestroy } from '../run';
-import { run } from 'ember-metal';
-import { compile } from 'ember-template-compiler';
+import TestResolverApplicationTestCase from './test-resolver-application';
+import Application from '@ember/application';
+import { assign } from '@ember/polyfills';
+import { Router } from '@ember/-internals/routing';
 
-export default class AutobootApplicationTestCase extends AbstractTestCase {
+export default class AutobootApplicationTestCase extends TestResolverApplicationTestCase {
+  createApplication(options, MyApplication = Application) {
+    let myOptions = assign(this.applicationOptions, options);
+    let application = (this.application = MyApplication.create(myOptions));
+    this.resolver = application.__registry__.resolver;
 
-  teardown() {
-    runDestroy(this.application);
-    super.teardown();
-  }
+    if (this.resolver) {
+      this.resolver.add('router:main', Router.extend(this.routerOptions));
+    }
 
-  createApplication(options, MyApplication=Application) {
-    let myOptions = assign({
-      rootElement: '#qunit-fixture',
-      Resolver: TestResolver
-    }, options);
-    let application = this.application = MyApplication.create(myOptions);
-    this.resolver = myOptions.Resolver.lastInstance;
     return application;
   }
 
-  add(specifier, factory) {
-    this.resolver.add(specifier, factory);
-  }
-
-  get router() {
-    return this.application.resolveRegistration('router:main');
-  }
-
-  visit(url, options) {
-    return run(this.applicationInstance, 'visit', url, options);
+  visit(url) {
+    return this.application.boot().then(() => {
+      return this.applicationInstance.visit(url);
+    });
   }
 
   get applicationInstance() {
-    return this.application.__deprecatedInstance__;
-  }
+    let { application } = this;
 
-  compile(string, options) {
-    return compile(...arguments);
-  }
+    if (!application) {
+      return undefined;
+    }
 
-  addTemplate(templateName, templateString) {
-    this.resolver.add(`template:${templateName}`, this.compile(templateString, {
-      moduleName: templateName
-    }));
+    return application.__deprecatedInstance__;
   }
-
 }

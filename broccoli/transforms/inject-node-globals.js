@@ -7,13 +7,14 @@ function injectNodeGlobals({ types: t }) {
     visitor: {
       Program: {
         enter(path, state) {
+          if (state.file.opts.filename.match(/node-module\/index.js/)) return;
+
           requireId = path.scope.globals.require;
           moduleId = path.scope.globals.module;
 
           if (requireId || moduleId) {
-
             let specifiers = [];
-            let source = t.stringLiteral(this.file.resolveModuleSource('node-module'));
+            let source = t.stringLiteral('node-module');
 
             if (requireId) {
               delete path.scope.globals.require;
@@ -28,25 +29,24 @@ function injectNodeGlobals({ types: t }) {
             importDecl = t.importDeclaration(specifiers, source);
             path.unshiftContainer('body', importDecl);
           }
-
         },
-        exit(path, state) {
+        exit(path) {
           if (requireId) {
-            path.scope.rename("require");
+            path.scope.rename('require');
           }
-        }
+        },
       },
       ImportDeclaration(path) {
         if (path.node === importDecl) {
           path.scope.registerDeclaration(path);
         }
-      }
-    }
-  }
+      },
+    },
+  };
 }
 
 injectNodeGlobals.baseDir = function() {
   return 'babel-plugin-transform-es2015-modules-amd';
-}
+};
 
 module.exports = injectNodeGlobals;

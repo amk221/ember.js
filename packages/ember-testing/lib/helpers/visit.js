@@ -1,8 +1,4 @@
-/**
-@module ember
-@submodule ember-testing
-*/
-import { run } from 'ember-metal';
+import { run } from '@ember/runloop';
 
 /**
   Loads a route, sets up any controllers, and renders any templates associated
@@ -19,7 +15,7 @@ import { run } from 'ember-metal';
 
   @method visit
   @param {String} url the name of the route
-  @return {RSVP.Promise}
+  @return {RSVP.Promise<undefined>}
   @public
 */
 export default function visit(app, url) {
@@ -35,9 +31,9 @@ export default function visit(app, url) {
   });
 
   if (app._readinessDeferrals > 0) {
-    router['initialURL'] = url;
+    router.initialURL = url;
     run(app, 'advanceReadiness');
-    delete router['initialURL'];
+    delete router.initialURL;
   } else {
     shouldHandleURL = true;
   }

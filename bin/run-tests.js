@@ -1,195 +1,157 @@
-#!/usr/bin/env node
+/* eslint-disable no-console */
+'use strict';
 
-var RSVP  = require('rsvp');
-var spawn = require('child_process').spawn;
-var chalk = require('chalk');
-var FEATURES = require('../broccoli/features');
-var getPackages = require('../lib/packages');
-var runInSequence = require('../lib/run-in-sequence');
+const chalk = require('chalk');
+const path = require('path');
 
-var finalhandler = require('finalhandler');
-var http = require('http');
-var serveStatic = require('serve-static');
+const finalhandler = require('finalhandler');
+const http = require('http');
+const serveStatic = require('serve-static');
+const fs = require('fs');
 
 // Serve up public/ftp folder.
-var serve = serveStatic('./dist/', { 'index': ['index.html', 'index.htm'] });
+const serve = serveStatic('./dist/', { index: ['index.html', 'index.htm'] });
 
 // Create server.
-var server = http.createServer(function(req, res) {
-  var done = finalhandler(req, res);
+const server = http.createServer(function(req, res) {
+  let done = finalhandler(req, res);
   serve(req, res, done);
 });
 
-var PORT = 13141;
+const PORT = 13141;
 // Listen.
 server.listen(PORT);
 
+// Cache the Chrome browser instance when launched for new pages.
+let browserRunner;
+
+function getBrowserRunner() {
+  if (browserRunner === undefined) {
+    // requires new node
+    let BrowserRunner = require('./run-tests-browser-runner');
+    browserRunner = new BrowserRunner();
+  }
+  return browserRunner;
+}
+
 function run(queryString) {
-  return new RSVP.Promise(function(resolve, reject) {
-    var url = 'http://localhost:' + PORT + '/tests/?' + queryString;
-    runInPhantom(url, 3, resolve, reject);
-  });
+  if (process.env.DEBUG_RENDER_TREE) {
+    queryString = `${queryString}&debugrendertree`;
+  }
+
+  let url = 'http://localhost:' + PORT + '/tests/?' + queryString;
+  return runInBrowser(url, 3);
 }
 
-function runInPhantom(url, retries, resolve, reject) {
-  var args = [require.resolve('qunit-phantomjs-runner'), url, '900'];
-
-  console.log('Running: phantomjs ' + args.join(' '));
-
-  var crashed = false;
-  var child = spawn('phantomjs', args);
-  var result = {output: [], errors: [], code: null};
-
-  child.stdout.on('data', function (data) {
-    var string = data.toString();
-    var lines = string.split('\n');
-
-    lines.forEach(function(line) {
-      if (line.indexOf('0 failed.') > -1) {
-        console.log(chalk.green(line));
-      } else {
-        console.log(line);
-      }
-    });
-    result.output.push(string);
-  });
-
-  child.stderr.on('data', function (data) {
-    var string = data.toString();
-
-    if (string.indexOf('PhantomJS has crashed.') > -1) {
-      crashed = true;
-    }
-
-    result.errors.push(string);
-    console.error(chalk.red(string));
-  });
-
-  child.on('close', function (code) {
-    result.code = code;
-
-    if (!crashed && code === 0) {
-      resolve(result);
-    } else if (crashed) {
-      console.log(chalk.red('Phantom crashed with exit code ' + code));
-
-      if (retries > 1) {
-        console.log(chalk.yellow('Retrying... ¯\_(ツ)_/¯'));
-        runInPhantom(url, retries - 1, resolve, reject);
-      } else {
-        console.log(chalk.red('Giving up! (╯°□°)╯︵ ┻━┻'));
-        console.log(chalk.yellow('This might be a known issue with PhantomJS 1.9.8, skipping for now'));
-        resolve(result);
-      }
-    } else {
-      reject(result);
-    }
-  });
+function runInBrowser(url, attempts) {
+  console.log('Running Chrome headless: ' + url);
+  return getBrowserRunner().run(url, attempts);
 }
 
-var testFunctions = [];
+let testFunctions = [];
+
+function generateTestsFor(packageName) {
+  let relativePath = path.join('packages', packageName);
+
+  if (!fs.existsSync(path.join(relativePath, 'tests'))) {
+    return;
+  }
+
+  testFunctions.push(() => run('package=' + packageName));
+  testFunctions.push(() => run('package=' + packageName + '&edition=classic'));
+  testFunctions.push(() => run('package=' + packageName + '&prebuilt=true'));
+  testFunctions.push(() => run('package=' + packageName + '&enableoptionalfeatures=true'));
+
+  // TODO: this should ultimately be deleted (when all packages can run with and
+  // without jQuery)
+  if (packageName !== 'ember') {
+    testFunctions.push(() => run('package=' + packageName + '&jquery=none'));
+  }
+}
 
 function generateEachPackageTests() {
-  var features = FEATURES;
-  var packages = getPackages(features);
+  fs.readdirSync('packages/@ember')
+    .filter(e => e !== '-internals')
+    .forEach(e => generateTestsFor(`@ember/${e}`));
 
-  Object.keys(packages).forEach(function(packageName) {
-    if (packages[packageName].skipTests) { return; }
+  fs.readdirSync('packages/@ember/-internals').forEach(e =>
+    generateTestsFor(`@ember/-internals/${e}`)
+  );
 
-    testFunctions.push(function() {
-      return run('package=' + packageName);
-    });
-    testFunctions.push(function() {
-      return run('package=' + packageName + '&enableoptionalfeatures=true');
-    });
-  });
+  fs.readdirSync('packages')
+    .filter(e => e !== '@ember')
+    .forEach(generateTestsFor);
 }
 
-function generateBuiltTests() {
-  // Container isn't publicly available.
-  // ember-testing/ember-debug are stripped from prod/min.
-  var common = 'skipPackage=container,ember-testing,ember-debug';
-  testFunctions.push(function() {
-    return run(common + '&nolint=true');
-  });
-  testFunctions.push(function() {
-    return run(common + '&dist=min&prod=true');
-  });
-  testFunctions.push(function() {
-    return run(common + '&dist=prod&prod=true');
-  });
-  testFunctions.push(function() {
-    return run(common + '&enableoptionalfeatures=true&dist=prod&prod=true');
-  });
+function generateStandardTests() {
+  testFunctions.push(() => run(''));
+  testFunctions.push(() => run('edition=classic'));
+  testFunctions.push(() => run('enableoptionalfeatures=true'));
 }
 
 function generateOldJQueryTests() {
-  testFunctions.push(function() {
-    return run('jquery=1.8.3&nolint=true');
-  });
-  testFunctions.push(function() {
-    return run('jquery=1.10.2&nolint=true');
-  });
-  testFunctions.push(function() {
-    return run('jquery=2.2.4&nolint=true');
-  });
+  testFunctions.push(() => run('jquery=1.10.2'));
+  testFunctions.push(() => run('jquery=1.12.4'));
+  testFunctions.push(() => run('jquery=2.2.4'));
 }
 
 function generateExtendPrototypeTests() {
-  testFunctions.push(function() {
-    return run('extendprototypes=true&nolint=true');
-  });
-  testFunctions.push(function() {
-    return run('extendprototypes=true&nolint=true&enableoptionalfeatures=true');
-  });
+  testFunctions.push(() => run('extendprototypes=true'));
+  testFunctions.push(() => run('extendprototypes=true&enableoptionalfeatures=true'));
 }
 
+function runInSequence(tasks) {
+  let length = tasks.length;
+  let current = Promise.resolve();
+  let results = new Array(length);
+
+  for (let i = 0; i < length; ++i) {
+    current = results[i] = current.then(tasks[i]);
+  }
+
+  return Promise.all(results);
+}
+
+function runAndExit() {
+  runInSequence(testFunctions)
+    .then(function() {
+      console.log(chalk.green('Passed!'));
+      process.exit(0);
+    })
+    .catch(function(err) {
+      console.error(chalk.red(err.toString()));
+      console.error(chalk.red('Failed!'));
+      process.exit(1);
+    });
+}
+
+let p = process.env.PACKAGE || 'ember';
 switch (process.env.TEST_SUITE) {
-  case 'built-tests':
-    console.log('suite: built-tests');
-    generateBuiltTests();
+  case 'package':
+    console.log(`suite: package ${p}`);
+    generateTestsFor(p);
+    runAndExit();
+    break;
+  case 'each-package':
+    console.log('suite: each-package');
+    generateEachPackageTests();
+    runAndExit();
     break;
   case 'old-jquery-and-extend-prototypes':
     console.log('suite: old-jquery-and-extend-prototypes');
     generateOldJQueryTests();
     generateExtendPrototypeTests();
+    runAndExit();
     break;
   case 'all':
     console.log('suite: all');
-    generateBuiltTests();
     generateOldJQueryTests();
     generateExtendPrototypeTests();
     generateEachPackageTests();
+    runAndExit();
     break;
-  case 'node':
-    console.log('suite: node');
-    require('./run-node-tests');
-    return;
-  case 'blueprints':
-    console.log('suite: blueprints');
-    require('../node-tests/nodetest-runner');
-    server.close();
-    return;
-  case 'travis-browsers':
-    console.log('suite: travis-browsers');
-    require('./run-travis-browser-tests');
-    return;
-
-  case 'sauce':
-    console.log('suite: sauce');
-    require('./run-sauce-tests');
-    return;
   default:
     console.log('suite: default (generate each package)');
-    generateEachPackageTests();
+    generateStandardTests();
+    runAndExit();
 }
-
-runInSequence(testFunctions)
-  .then(function() {
-    console.log(chalk.green('Passed!'));
-    process.exit(0);
-  })
-  .catch(function() {
-    console.error(chalk.red('Failed!'));
-    process.exit(1);
-  });

@@ -1,8 +1,8 @@
 /**
 @module ember
-@submodule ember-testing
 */
 import { focus, fireEvent } from '../events';
+import isFormControl from './-is-form-control';
 
 /**
   Fills in an input element with some text.
@@ -19,12 +19,12 @@ import { focus, fireEvent } from '../events';
   @param {String} selector jQuery selector finding an input element on the DOM
   to fill text with
   @param {String} text text to place inside the input element
-  @return {RSVP.Promise}
+  @return {RSVP.Promise<undefined>}
   @public
 */
 export default function fillIn(app, selector, contextOrText, text) {
   let $el, el, context;
-  if (typeof text === 'undefined') {
+  if (text === undefined) {
     text = contextOrText;
   } else {
     context = contextOrText;
@@ -33,7 +33,12 @@ export default function fillIn(app, selector, contextOrText, text) {
   el = $el[0];
   focus(el);
 
-  $el.eq(0).val(text);
+  if (isFormControl(el)) {
+    el.value = text;
+  } else {
+    el.innerHTML = text;
+  }
+
   fireEvent(el, 'input');
   fireEvent(el, 'change');
 

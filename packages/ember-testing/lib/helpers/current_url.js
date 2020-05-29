@@ -1,8 +1,7 @@
 /**
 @module ember
-@submodule ember-testing
 */
-import { get } from 'ember-metal';
+import { get } from '@ember/-internals/metal';
 
 /**
   Returns the current URL.

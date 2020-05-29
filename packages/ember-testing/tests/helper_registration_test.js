@@ -1,8 +1,9 @@
-import { run } from 'ember-metal';
-import Test from '../test';
-import { Application as EmberApplication } from 'ember-application';
+import { run } from '@ember/runloop';
+import Test from '../lib/test';
+import EmberApplication from '@ember/application';
+import { moduleFor, ModuleBasedTestResolver, AbstractTestCase } from 'internal-test-helpers';
 
-var App, appBooted, helperContainer;
+let App, appBooted, helperContainer;
 
 function registerHelper() {
   Test.registerHelper('boot', function(app) {
@@ -16,14 +17,16 @@ function unregisterHelper() {
   Test.unregisterHelper('boot');
 }
 
-var originalAdapter = Test.adapter;
+const originalAdapter = Test.adapter;
 
 function setupApp() {
   appBooted = false;
   helperContainer = {};
 
   run(function() {
-    App = EmberApplication.create();
+    App = EmberApplication.create({
+      Resolver: ModuleBasedTestResolver,
+    });
     App.setupForTesting();
     App.injectTestHelpers(helperContainer);
   });
@@ -33,53 +36,65 @@ function destroyApp() {
   if (App) {
     run(App, 'destroy');
     App = null;
+    helperContainer = null;
   }
 }
 
-QUnit.module('Test - registerHelper/unregisterHelper', {
-  teardown() {
-    Test.adapter = originalAdapter;
-    destroyApp();
+moduleFor(
+  'Test - registerHelper/unregisterHelper',
+  class extends AbstractTestCase {
+    teardown() {
+      Test.adapter = originalAdapter;
+      destroyApp();
+    }
+
+    ['@test Helper gets registered'](assert) {
+      assert.expect(2);
+
+      registerHelper();
+      setupApp();
+
+      assert.ok(App.testHelpers.boot);
+      assert.ok(helperContainer.boot);
+    }
+
+    ['@test Helper is ran when called'](assert) {
+      let done = assert.async();
+      assert.expect(1);
+
+      registerHelper();
+      setupApp();
+
+      App.testHelpers
+        .boot()
+        .then(function() {
+          assert.ok(appBooted);
+        })
+        .finally(done);
+    }
+
+    ['@test Helper can be unregistered'](assert) {
+      assert.expect(4);
+
+      registerHelper();
+      setupApp();
+
+      assert.ok(App.testHelpers.boot);
+      assert.ok(helperContainer.boot);
+
+      unregisterHelper();
+
+      run(App, 'destroy');
+      setupApp();
+
+      assert.ok(
+        !App.testHelpers.boot,
+        'once unregistered the helper is not added to App.testHelpers'
+      );
+      assert.ok(
+        !helperContainer.boot,
+        'once unregistered the helper is not added to the helperContainer'
+      );
+    }
   }
-});
-
-QUnit.test('Helper gets registered', function() {
-  expect(2);
-
-  registerHelper();
-  setupApp();
-
-  ok(App.testHelpers.boot);
-  ok(helperContainer.boot);
-});
-
-QUnit.test('Helper is ran when called', function(assert) {
-  let done = assert.async();
-  assert.expect(1);
-
-  registerHelper();
-  setupApp();
-
-  App.testHelpers.boot()
-    .then(function() {
-      assert.ok(appBooted);
-    })
-    .finally(done);
-});
-
-QUnit.test('Helper can be unregistered', function() {
-  expect(4);
-
-  registerHelper();
-  setupApp();
-
-  ok(App.testHelpers.boot);
-  ok(helperContainer.boot);
-
-  unregisterHelper();
-
-  setupApp();
-
-  ok(!App.testHelpers.boot, 'once unregistered the helper is not added to App.testHelpers');
-  ok(!helperContainer.boot, 'once unregistered the helper is not added to the helperContainer');
-});
+);

@@ -1,14 +1,13 @@
-import { assign } from 'ember-utils';
-import { run } from 'ember-metal';
-import { jQuery } from 'ember-views';
+/* global Element */
 
+import { assign } from '@ember/polyfills';
+
+import NodeQuery from '../node-query';
 import equalInnerHTML from '../equal-inner-html';
 import equalTokens from '../equal-tokens';
-import {
-  equalsElement,
-  regex,
-  classes
-} from '../matchers';
+import { getElement } from '../element-helpers';
+import { equalsElement, regex, classes } from '../matchers';
+import { runLoopSettled, runTask } from '../run';
 
 const TextNode = window.Text;
 const HTMLElement = window.HTMLElement;
@@ -27,20 +26,23 @@ function isMarker(node) {
 }
 
 export default class AbstractTestCase {
-  constructor() {
+  constructor(assert) {
     this.element = null;
     this.snapshot = null;
-    this.assert = QUnit.config.current.assert;
+    this.assert = assert;
+
+    let { fixture } = this;
+    if (fixture) {
+      this.setupFixture(fixture);
+    }
   }
 
   teardown() {}
+  afterEach() {}
 
-  runTask(callback) {
-    return run(callback);
-  }
-
-  runTaskNext(callback) {
-    return run.next(callback);
+  setupFixture(innerHTML) {
+    let fixture = document.getElementById('qunit-fixture');
+    fixture.innerHTML = innerHTML;
   }
 
   // The following methods require `this.element` to work
@@ -51,7 +53,7 @@ export default class AbstractTestCase {
 
   nthChild(n) {
     let i = 0;
-    let node = this.element.firstChild;
+    let node = getElement().firstChild;
 
     while (node) {
       if (!isMarker(node)) {
@@ -70,7 +72,7 @@ export default class AbstractTestCase {
 
   get nodesCount() {
     let count = 0;
-    let node = this.element.firstChild;
+    let node = getElement().firstChild;
 
     while (node) {
       if (!isMarker(node)) {
@@ -84,21 +86,42 @@ export default class AbstractTestCase {
   }
 
   $(sel) {
-    return sel ? jQuery(sel, this.element) : jQuery(this.element);
+    if (sel instanceof Element) {
+      return NodeQuery.element(sel);
+    } else if (typeof sel === 'string') {
+      return NodeQuery.query(sel, getElement());
+    } else if (sel !== undefined) {
+      throw new Error(`Invalid this.$(${sel})`);
+    } else {
+      return NodeQuery.element(getElement());
+    }
+  }
+
+  wrap(element) {
+    return NodeQuery.element(element);
   }
 
   click(selector) {
-    this.runTask(() => this.$(selector).click());
+    let element;
+    if (typeof selector === 'string') {
+      element = getElement().querySelector(selector);
+    } else {
+      element = selector;
+    }
+
+    let event = element.click();
+
+    return runLoopSettled(event);
   }
 
   textValue() {
-    return this.$().text();
+    return getElement().textContent;
   }
 
   takeSnapshot() {
-    let snapshot = this.snapshot = [];
+    let snapshot = (this.snapshot = []);
 
-    let node = this.element.firstChild;
+    let node = getElement().firstChild;
 
     while (node) {
       if (!isMarker(node)) {
@@ -112,15 +135,19 @@ export default class AbstractTestCase {
   }
 
   assertText(text) {
-    this.assert.strictEqual(this.textValue(), text, `#qunit-fixture content should be: \`${text}\``);
+    this.assert.strictEqual(
+      this.textValue(),
+      text,
+      `#qunit-fixture content should be: \`${text}\``
+    );
   }
 
   assertInnerHTML(html) {
-    equalInnerHTML(this.element, html);
+    equalInnerHTML(this.assert, getElement(), html);
   }
 
   assertHTML(html) {
-    equalTokens(this.element, html, `#qunit-fixture content should be: \`${html}\``);
+    equalTokens(getElement(), html, `#qunit-fixture content should be: \`${html}\``);
   }
 
   assertElement(node, { ElementType = HTMLElement, tagName, attrs = null, content = null }) {
@@ -128,10 +155,13 @@ export default class AbstractTestCase {
       throw new Error(`Expecting a ${ElementType.name}, but got ${node}`);
     }
 
-    equalsElement(node, tagName, attrs, content);
+    equalsElement(this.assert, node, tagName, attrs, content);
   }
 
-  assertComponentElement(node, { ElementType = HTMLElement, tagName = 'div', attrs = null, content = null }) {
+  assertComponentElement(
+    node,
+    { ElementType = HTMLElement, tagName = 'div', attrs = null, content = null }
+  ) {
     attrs = assign({}, { id: regex(/^ember\d*$/), class: classes('ember-view') }, attrs || {});
     this.assertElement(node, { ElementType, tagName, attrs, content });
   }
@@ -157,7 +187,7 @@ export default class AbstractTestCase {
 
   assertStableRerender() {
     this.takeSnapshot();
-    this.runTask(() => this.rerender());
+    runTask(() => this.rerender());
     this.assertInvariants();
   }
 }

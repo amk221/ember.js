@@ -3,13 +3,14 @@
   <head>
     <meta charset="utf-8">
     <title>Ember</title>
-    <link rel="stylesheet" href="../qunit/qunit.css">
+    <link rel="stylesheet" href="./qunit/qunit.css">
     <style type="text/css">
       #qunit-tests.hideskipped li.skipped {
         display: none;
       }
     </style>
-    <script src="../qunit/qunit.js"></script>
+    <script src="./polyfill.js"></script>
+    <script src="./qunit/qunit.js"></script>
     <script src="/testem.js"></script>
 
     <script type="text/javascript">
@@ -19,9 +20,9 @@
     </script>
 
     <script type="text/javascript">
-      // Load custom version of jQuery if possible (assign to window so IE8 can use in later blocks)
+      // Load custom version of jQuery if possible
       var jQueryVersion = QUnit.urlParams.jquery;
-      if (jQueryVersion) {
+      if (jQueryVersion && jQueryVersion !== 'none') {
         loadScript('https://code.jquery.com/jquery-'+jQueryVersion+'.js');
       }
       // Close the script tag to make sure document.write happens
@@ -30,79 +31,66 @@
     <script type="text/javascript">
       // Fallback to default jQuery
       if (jQueryVersion !== 'none' && !window.jQuery) {
-        loadScript('../jquery/jquery.js');
+        loadScript('./jquery/jquery.js');
       }
       // Close the script tag to make sure document.write happens
     </script>
 
     <script>
       (function() {
-        window.ENV = window.ENV || {};
+        window.EmberENV = window.EmberENV || {};
 
-        window.printTestCounts = function() {
-          var passing = $("li[id^='qunit-'].pass").length;
-          var failing = $("li[id^='qunit-'].fail").length;
-          var total = passing + failing;
+        // Determine edition, and apply correct EmberENV settings
+        var edition = QUnit.urlParams.edition || 'octane';
 
-          console.table([{ passing: passing, failing: failing, total: total }], ["passing", "failing", "total"]);
+        if (edition === 'octane') {
+          EmberENV._TEMPLATE_ONLY_GLIMMER_COMPONENTS = true;
+          EmberENV._APPLICATION_TEMPLATE_WRAPPER = false;
+          EmberENV._DEFAULT_ASYNC_OBSERVERS = true;
         }
 
-        window.findPassingSkippedTests = function() {
-          console.log($("li[id^='qunit-'].pass:contains(SKIPPED)").map(function() { return $("strong", this).text() }).toArray().join("\n"));
-        };
-
-        // Test for "hooks in ENV.EMBER_LOAD_HOOKS['hookName'] get executed"
-        ENV.EMBER_LOAD_HOOKS = ENV.EMBER_LOAD_HOOKS || {};
-        ENV.EMBER_LOAD_HOOKS.__before_ember_test_hook__ = ENV.EMBER_LOAD_HOOKS.__before_ember_test_hook__ || [];
-        ENV.__test_hook_count__ = 0;
-        ENV.EMBER_LOAD_HOOKS.__before_ember_test_hook__.push(function(object) {
-          ENV.__test_hook_count__ += object;
+        // Test for "hooks in EmberENV.EMBER_LOAD_HOOKS['hookName'] get executed"
+        EmberENV.EMBER_LOAD_HOOKS = EmberENV.EMBER_LOAD_HOOKS || {};
+        EmberENV.EMBER_LOAD_HOOKS.__before_ember_test_hook__ = EmberENV.EMBER_LOAD_HOOKS.__before_ember_test_hook__ || [];
+        EmberENV.__test_hook_count__ = 0;
+        EmberENV.EMBER_LOAD_HOOKS.__before_ember_test_hook__.push(function(object) {
+          EmberENV.__test_hook_count__ += object;
         });
 
-        window.ENV.FEATURES = !!QUnit.urlParams.prod ? {{PROD_FEATURES}} : {{DEV_FEATURES}};
 
         // Handle extending prototypes
-        ENV['EXTEND_PROTOTYPES'] = !!QUnit.urlParams.extendprototypes;
+        EmberENV['EXTEND_PROTOTYPES'] = !!QUnit.urlParams.extendprototypes;
 
         // Handle testing feature flags
         if (QUnit.urlParams.enableoptionalfeatures) {
-          for (var feature in window.ENV.FEATURES) {
-            if (window.ENV.FEATURES[feature] === null) {
-              window.ENV.FEATURES[feature] = true;
-            }
-          }
+          EmberENV.ENABLE_OPTIONAL_FEATURES = true;
         }
 
-        ENV['RAISE_ON_DEPRECATION'] = true;
+        EmberENV['RAISE_ON_DEPRECATION'] = true;
+
+        if (QUnit.urlParams.debugrendertree) {
+          EmberENV['_DEBUG_RENDER_TREE'] = true;
+        }
       })();
     </script>
 
     <script>
-      var dist = QUnit.urlParams.dist;
-
-      if (dist) {
-        loadScript('../ember.' + dist + '.js');
-      } else {
+      if (QUnit.urlParams.prebuilt) {
         loadScript('../ember.debug.js');
+      } else {
+        loadScript('./ember.js');
       }
+      loadScript('./ember-testing.js');
     </script>
 
     <script type="text/javascript">
-      Ember.testing = true;
+      var setTesting = Ember.__loader.require('@ember/debug')['setTesting'];
+      setTesting(true);
     </script>
 
     <script>
       loadScript('../ember-template-compiler.js');
-    </script>
-
-    <script>
-      var prod = QUnit.urlParams.prod;
-
-      if (prod) {
-        loadScript('../ember-tests.prod.js');
-      } else {
-        loadScript('../ember-tests.js');
-      }
+      loadScript('./ember-tests.js');
     </script>
 
     <script>
@@ -120,39 +108,8 @@
           }
         }
 
-        Ember.Debug.registerDeprecationHandler(function (message, options, next) {
-          var id = options && options.id;
-          next(message, options);
-        });
-
-        window.EmberDev = window.EmberDev || {};
-        EmberDev.runningProdBuild = !!QUnit.urlParams.prod;
-
-        // hack qunit to not suck for Ember objects
-        var originalTypeof = QUnit.jsDump.typeOf;
-
-        QUnit.jsDump.typeOf = function(obj) {
-          if (Ember && Ember.Object && Ember.Object.detectInstance(obj)) {
-            return "emberObject";
-          }
-
-          return originalTypeof.call(this, obj);
-        };
-
-        QUnit.jsDump.parsers.emberObject = function(obj) {
-          return obj.toString();
-        };
-
-        var EmberDevTestHelperAssert = window.Ember.__loader.require('ember-dev/test-helper/index')['default'];
-        var setupQUnit = window.Ember.__loader.require('ember-dev/test-helper/setup-qunit')['default'];
-        var debugModule = window.Ember.__loader.require('ember-debug');
-        var testHelpers = new EmberDevTestHelperAssert({
-          Ember: window.Ember,
-          runningProdBuild: EmberDev.runningProdBuild,
-          getDebugFunction: debugModule.getDebugFunction,
-          setDebugFunction: debugModule.setDebugFunction
-        });
-        setupQUnit(testHelpers);
+        var setupQUnit = window.Ember.__loader.require('internal-test-helpers/lib/ember-dev/setup-qunit')['default'];
+        setupQUnit();
 
         // Tests should time out after 15 seconds
         QUnit.config.testTimeout = QUnit.urlParams.timeout ? parseInt(QUnit.urlParams.timeout, 10) : 15000;
@@ -162,19 +119,47 @@
         QUnit.config.urlConfig.push({ id: 'enableoptionalfeatures', label: "Enable Opt Features"});
         // Handle extending prototypes
         QUnit.config.urlConfig.push({ id: 'extendprototypes', label: 'Extend Prototypes'});
-        // Enable/disable livereload
-        QUnit.config.urlConfig.push({ id: 'livereload', label: 'Live Reload'});
-        // Handle JSHint
-        QUnit.config.urlConfig.push({ id: 'nolint', label: 'Skip ESLint'});
+
         QUnit.config.urlConfig.push('forceskip');
 
         if (QUnit.config.seed) {
           QUnit.config.reorder = false;
         }
 
+        var testsTotal, testsPassed, testsFailed, testsRunning;
+
         QUnit.begin(function() {
+          testsRunning = true;
+          testsTotal = testsPassed = testsFailed = 0;
+
           if (QUnit.urlParams.hideskipped) {
             $('#qunit-tests').addClass('hideskipped');
+          }
+        });
+
+        QUnit.testDone(function(results) {
+          testsTotal++;
+
+          if (results.failed) {
+            testsFailed++;
+          } else {
+            testsPassed++;
+          }
+        });
+
+        QUnit.done(function(result) {
+          console.log('\n' + 'Took ' + result.runtime + 'ms to run ' + testsTotal + ' tests. ' + testsPassed + ' passed, ' + testsFailed + ' failed.');
+          testsRunning = false;
+        });
+
+        window.addEventListener('beforeunload', function (e) {
+          if (testsRunning) {
+            debugger
+
+            // Cancel the event
+            e.preventDefault();
+            // Chrome requires returnValue to be set
+            e.returnValue = '';
           }
         });
       })();
@@ -192,21 +177,8 @@
       for (var moduleName in Ember.__loader.registry) {
         if (!moduleName.match(packageRegexp))   { continue; }
         if (moduleName.match(skipPackageRegexp)) { continue; }
-        if (QUnit.urlParams.nolint && moduleName.match(/lint-test$/)) { continue; }
 
         if (moduleName.match(/[_-]test$/)) { Ember.__loader.require(moduleName); }
-      }
-    </script>
-
-    <script>
-      if (QUnit.urlParams.livereload) {
-        (function() {
-          var src = (location.protocol || 'http:') + '//' + (location.hostname || 'localhost') + ':' + (parseInt(location.port, 10) + 31529) + '/livereload.js?snipver=1';
-          var script    = document.createElement('script');
-          script.type   = 'text/javascript';
-          script.src    = src;
-          document.getElementsByTagName('head')[0].appendChild(script);
-        }());
       }
     </script>
 

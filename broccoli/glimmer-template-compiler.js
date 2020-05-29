@@ -1,4 +1,3 @@
-/* eslint-env node */
 'use strict';
 
 const Filter = require('broccoli-persistent-filter');
@@ -6,7 +5,7 @@ const { stripIndent } = require('common-tags');
 
 GlimmerTemplatePrecompiler.prototype = Object.create(Filter.prototype);
 
-function GlimmerTemplatePrecompiler (inputTree, options) {
+function GlimmerTemplatePrecompiler(inputTree, options) {
   if (!(this instanceof GlimmerTemplatePrecompiler)) {
     return new GlimmerTemplatePrecompiler(inputTree, options);
   }
@@ -28,7 +27,9 @@ GlimmerTemplatePrecompiler.prototype.baseDir = function() {
 };
 
 GlimmerTemplatePrecompiler.prototype.processString = function(content, relativePath) {
-  var compiled = this.precompile(content, { meta: { moduleName: relativePath } });
+  let compiled = this.precompile(content, {
+    meta: { moduleName: relativePath },
+  });
   return stripIndent`
     import template from '../template';
     export default template(${compiled});

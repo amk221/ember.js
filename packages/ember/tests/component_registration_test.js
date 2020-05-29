@@ -1,358 +1,258 @@
-import { Controller } from 'ember-runtime';
-import { run } from 'ember-metal';
-
-import { Application } from 'ember-application';
-import { Router } from 'ember-routing';
+import Application from '@ember/application';
+import Controller from '@ember/controller';
+import { Component } from '@ember/-internals/glimmer';
 import { compile } from 'ember-template-compiler';
-import {
-  Component,
-  setTemplates,
-  setTemplate
-} from 'ember-glimmer';
-import { jQuery } from 'ember-views';
+import { moduleFor, ApplicationTestCase } from 'internal-test-helpers';
+import { ENV } from '@ember/-internals/environment';
 
-let App, appInstance;
-
-function prepare() {
-  setTemplate('components/expand-it', compile('<p>hello {{yield}}</p>'));
-  setTemplate('application', compile('Hello world {{#expand-it}}world{{/expand-it}}'));
-}
-
-function cleanup() {
-  run(() => {
-    try {
-      if (App) {
-        App.destroy();
-      }
-      App = appInstance = null;
-    } finally {
-      setTemplates({});
+moduleFor(
+  'Application Lifecycle - Component Registration',
+  class extends ApplicationTestCase {
+    // This is necessary for this.application.instanceInitializer to not leak between tests
+    createApplication(options) {
+      return super.createApplication(options, Application.extend());
     }
-  });
-}
 
-QUnit.module('Application Lifecycle - Component Registration', {
-  setup: prepare,
-  teardown: cleanup
-});
-
-function boot(callback, startURL = '/') {
-  run(() => {
-    App = Application.create({
-      name: 'App',
-      rootElement: '#qunit-fixture'
-    });
-
-    App.deferReadiness();
-
-    App.Router = Router.extend({
-      location: 'none'
-    });
-
-    appInstance = App.__deprecatedInstance__;
-
-    if (callback) { callback(); }
-  });
-
-  let router = appInstance.lookup('router:main');
-
-  run(App, 'advanceReadiness');
-  run(() => router.handleURL(startURL));
-}
-
-QUnit.test('The helper becomes the body of the component', function() {
-  boot();
-  equal(jQuery('div.ember-view > div.ember-view', '#qunit-fixture').text(), 'hello world', 'The component is composed correctly');
-});
-
-QUnit.test('If a component is registered, it is used', function() {
-  boot(() => {
-    appInstance.register('component:expand-it', Component.extend({
-      classNames: 'testing123'
-    }));
-  });
-
-  equal(jQuery('div.testing123', '#qunit-fixture').text(), 'hello world', 'The component is composed correctly');
-});
-
-QUnit.test('Late-registered components can be rendered with custom `layout` property', function() {
-  setTemplate('application', compile('<div id=\'wrapper\'>there goes {{my-hero}}</div>'));
-
-  boot(() => {
-    appInstance.register('component:my-hero', Component.extend({
-      classNames: 'testing123',
-      layout: compile('watch him as he GOES')
-    }));
-  });
-
-  equal(jQuery('#wrapper').text(), 'there goes watch him as he GOES', 'The component is composed correctly');
-});
-
-QUnit.test('Late-registered components can be rendered with template registered on the container', function() {
-  setTemplate('application', compile('<div id=\'wrapper\'>hello world {{sally-rutherford}}-{{#sally-rutherford}}!!!{{/sally-rutherford}}</div>'));
-
-  boot(() => {
-    appInstance.register('template:components/sally-rutherford', compile('funkytowny{{yield}}'));
-    appInstance.register('component:sally-rutherford', Component);
-  });
-
-  equal(jQuery('#wrapper').text(), 'hello world funkytowny-funkytowny!!!', 'The component is composed correctly');
-});
-
-QUnit.test('Late-registered components can be rendered with ONLY the template registered on the container', function() {
-  setTemplate('application', compile('<div id=\'wrapper\'>hello world {{borf-snorlax}}-{{#borf-snorlax}}!!!{{/borf-snorlax}}</div>'));
-
-  boot(() => {
-    appInstance.register('template:components/borf-snorlax', compile('goodfreakingTIMES{{yield}}'));
-  });
-
-  equal(jQuery('#wrapper').text(), 'hello world goodfreakingTIMES-goodfreakingTIMES!!!', 'The component is composed correctly');
-});
-
-QUnit.test('Assigning layoutName to a component should setup the template as a layout', function() {
-  expect(1);
-
-  setTemplate('application', compile('<div id=\'wrapper\'>{{#my-component}}{{text}}{{/my-component}}</div>'));
-  setTemplate('foo-bar-baz', compile('{{text}}-{{yield}}'));
-
-  boot(() => {
-    appInstance.register('controller:application', Controller.extend({
-      'text': 'outer'
-    }));
-
-    appInstance.register('component:my-component', Component.extend({
-      text: 'inner',
-      layoutName: 'foo-bar-baz'
-    }));
-  });
-
-  equal(jQuery('#wrapper').text(), 'inner-outer', 'The component is composed correctly');
-});
-
-QUnit.test('Assigning layoutName and layout to a component should use the `layout` value', function() {
-  expect(1);
-
-  setTemplate('application', compile('<div id=\'wrapper\'>{{#my-component}}{{text}}{{/my-component}}</div>'));
-  setTemplate('foo-bar-baz', compile('No way!'));
-
-  boot(() => {
-    appInstance.register('controller:application', Controller.extend({
-      'text': 'outer'
-    }));
-
-    appInstance.register('component:my-component', Component.extend({
-      text: 'inner',
-      layoutName: 'foo-bar-baz',
-      layout: compile('{{text}}-{{yield}}')
-    }));
-  });
-
-  equal(jQuery('#wrapper').text(), 'inner-outer', 'The component is composed correctly');
-});
-
-QUnit.test('Assigning defaultLayout to a component should set it up as a layout if no layout was found [DEPRECATED]', function() {
-  expect(2);
-
-  setTemplate('application', compile('<div id=\'wrapper\'>{{#my-component}}{{text}}{{/my-component}}</div>'));
-
-  expectDeprecation(() => {
-    boot(() => {
-      appInstance.register('controller:application', Controller.extend({
-        'text': 'outer'
-      }));
-
-      appInstance.register('component:my-component', Component.extend({
-        text: 'inner',
-        defaultLayout: compile('{{text}}-{{yield}}')
-      }));
-    });
-  }, /Specifying `defaultLayout` to .+ is deprecated\./);
-
-  equal(jQuery('#wrapper').text(), 'inner-outer', 'The component is composed correctly');
-});
-
-QUnit.test('Assigning defaultLayout to a component should set it up as a layout if layout was found [DEPRECATED]', function() {
-  expect(2);
-
-  setTemplate('application', compile('<div id=\'wrapper\'>{{#my-component}}{{text}}{{/my-component}}</div>'));
-  setTemplate('components/my-component', compile('{{text}}-{{yield}}'));
-
-  expectDeprecation(() => {
-    boot(() => {
-      appInstance.register('controller:application', Controller.extend({
-        'text': 'outer'
-      }));
-
-      appInstance.register('component:my-component', Component.extend({
-        text: 'inner',
-        defaultLayout: compile('should not see this!')
-      }));
-    });
-  }, /Specifying `defaultLayout` to .+ is deprecated\./);
-
-  equal(jQuery('#wrapper').text(), 'inner-outer', 'The component is composed correctly');
-});
-
-QUnit.test('Using name of component that does not exist', function () {
-  setTemplate('application', compile('<div id=\'wrapper\'>{{#no-good}} {{/no-good}}</div>'));
-
-  expectAssertion(() => boot(), /.* named "no-good" .*/);
-});
-
-QUnit.module('Application Lifecycle - Component Context', {
-  setup: prepare,
-  teardown: cleanup
-});
-
-QUnit.test('Components with a block should have the proper content when a template is provided', function() {
-  setTemplate('application', compile('<div id=\'wrapper\'>{{#my-component}}{{text}}{{/my-component}}</div>'));
-  setTemplate('components/my-component', compile('{{text}}-{{yield}}'));
-
-  boot(() => {
-    appInstance.register('controller:application', Controller.extend({
-      'text': 'outer'
-    }));
-
-    appInstance.register('component:my-component', Component.extend({
-      text: 'inner'
-    }));
-  });
-
-  equal(jQuery('#wrapper').text(), 'inner-outer', 'The component is composed correctly');
-});
-
-QUnit.test('Components with a block should yield the proper content without a template provided', function() {
-  setTemplate('application', compile('<div id=\'wrapper\'>{{#my-component}}{{text}}{{/my-component}}</div>'));
-
-  boot(() => {
-    appInstance.register('controller:application', Controller.extend({
-      'text': 'outer'
-    }));
-
-    appInstance.register('component:my-component', Component.extend({
-      text: 'inner'
-    }));
-  });
-
-  equal(jQuery('#wrapper').text(), 'outer', 'The component is composed correctly');
-});
-
-QUnit.test('Components without a block should have the proper content when a template is provided', function() {
-  setTemplate('application', compile('<div id=\'wrapper\'>{{my-component}}</div>'));
-  setTemplate('components/my-component', compile('{{text}}'));
-
-  boot(() => {
-    appInstance.register('controller:application', Controller.extend({
-      'text': 'outer'
-    }));
-
-    appInstance.register('component:my-component', Component.extend({
-      text: 'inner'
-    }));
-  });
-
-  equal(jQuery('#wrapper').text(), 'inner', 'The component is composed correctly');
-});
-
-QUnit.test('Components without a block should have the proper content', function() {
-  setTemplate('application', compile('<div id=\'wrapper\'>{{my-component}}</div>'));
-
-  boot(() => {
-    appInstance.register('controller:application', Controller.extend({
-      'text': 'outer'
-    }));
-
-    appInstance.register('component:my-component', Component.extend({
-      didInsertElement() {
-        this.$().html('Some text inserted by jQuery');
+    ['@test The helper becomes the body of the component'](assert) {
+      if (ENV._TEMPLATE_ONLY_GLIMMER_COMPONENTS) {
+        assert.expect(0);
+        return;
       }
-    }));
-  });
 
-  equal(jQuery('#wrapper').text(), 'Some text inserted by jQuery', 'The component is composed correctly');
-});
+      this.addTemplate('components/expand-it', '<p>hello {{yield}}</p>');
+      this.addTemplate('application', 'Hello world {{#expand-it}}world{{/expand-it}}');
 
-// The test following this one is the non-deprecated version
-QUnit.test('properties of a component without a template should not collide with internal structures [DEPRECATED]', function() {
-  setTemplate('application', compile('<div id=\'wrapper\'>{{my-component data=foo}}</div>'));
+      return this.visit('/').then(() => {
+        this.assertText('Hello world hello world');
+        this.assertComponentElement(this.element.firstElementChild, {
+          tagName: 'div',
+          content: '<p>hello world</p>',
+        });
+      });
+    }
 
-  boot(() => {
-    appInstance.register('controller:application', Controller.extend({
-      'text': 'outer',
-      'foo': 'Some text inserted by jQuery'
-    }));
-
-    appInstance.register('component:my-component', Component.extend({
-      didInsertElement() {
-        this.$().html(this.get('data'));
+    ['@test The helper becomes the body of the component (ENV._TEMPLATE_ONLY_GLIMMER_COMPONENTS = true;)'](
+      assert
+    ) {
+      if (!ENV._TEMPLATE_ONLY_GLIMMER_COMPONENTS) {
+        assert.expect(0);
+        return;
       }
-    }));
-  });
 
-  equal(jQuery('#wrapper').text(), 'Some text inserted by jQuery', 'The component is composed correctly');
-});
+      this.addTemplate('components/expand-it', '<p>hello {{yield}}</p>');
+      this.addTemplate('application', 'Hello world {{#expand-it}}world{{/expand-it}}');
 
-QUnit.test('attrs property of a component without a template should not collide with internal structures', function() {
-  setTemplate('application', compile('<div id=\'wrapper\'>{{my-component attrs=foo}}</div>'));
+      return this.visit('/').then(() => {
+        this.assertInnerHTML('Hello world <p>hello world</p>');
+        ENV._TEMPLATE_ONLY_GLIMMER_COMPONENTS = false;
+      });
+    }
 
-  boot(() => {
-    appInstance.register('controller:application', Controller.extend({
-      'text': 'outer',
-      'foo': 'Some text inserted by jQuery'
-    }));
+    ['@test If a component is registered, it is used'](assert) {
+      this.addTemplate('components/expand-it', '<p>hello {{yield}}</p>');
+      this.addTemplate('application', `Hello world {{#expand-it}}world{{/expand-it}}`);
 
-    appInstance.register('component:my-component', Component.extend({
-      didInsertElement() {
-        // FIXME: I'm unsure if this is even the right way to access attrs
-        this.$().html(this.get('attrs.attrs.value'));
-      }
-    }));
-  });
+      this.application.instanceInitializer({
+        name: 'expand-it-component',
+        initialize(applicationInstance) {
+          applicationInstance.register(
+            'component:expand-it',
+            Component.extend({
+              classNames: 'testing123',
+            })
+          );
+        },
+      });
 
-  equal(jQuery('#wrapper').text(), 'Some text inserted by jQuery', 'The component is composed correctly');
-});
+      return this.visit('/').then(() => {
+        let text = this.$('div.testing123')
+          .text()
+          .trim();
+        assert.equal(text, 'hello world', 'The component is composed correctly');
+      });
+    }
 
-QUnit.test('Components trigger actions in the parents context when called from within a block', function() {
-  setTemplate('application', compile('<div id=\'wrapper\'>{{#my-component}}<a href=\'#\' id=\'fizzbuzz\' {{action \'fizzbuzz\'}}>Fizzbuzz</a>{{/my-component}}</div>'));
+    ['@test Late-registered components can be rendered with custom `layout` property'](assert) {
+      this.addTemplate('application', `<div id='wrapper'>there goes {{my-hero}}</div>`);
 
-  boot(() => {
-    appInstance.register('controller:application', Controller.extend({
-      actions: {
-        fizzbuzz() {
-          ok(true, 'action triggered on parent');
-        }
-      }
-    }));
+      this.application.instanceInitializer({
+        name: 'my-hero-component',
+        initialize(applicationInstance) {
+          applicationInstance.register(
+            'component:my-hero',
+            Component.extend({
+              classNames: 'testing123',
+              layout: compile('watch him as he GOES'),
+            })
+          );
+        },
+      });
 
-    appInstance.register('component:my-component', Component.extend());
-  });
+      return this.visit('/').then(() => {
+        let text = this.$('#wrapper')
+          .text()
+          .trim();
+        assert.equal(
+          text,
+          'there goes watch him as he GOES',
+          'The component is composed correctly'
+        );
+      });
+    }
 
-  run(() => {
-    jQuery('#fizzbuzz', '#wrapper').click();
-  });
-});
+    ['@test Late-registered components can be rendered with template registered on the container'](
+      assert
+    ) {
+      this.addTemplate(
+        'application',
+        `<div id='wrapper'>hello world {{sally-rutherford}}-{{#sally-rutherford}}!!!{{/sally-rutherford}}</div>`
+      );
 
-QUnit.test('Components trigger actions in the components context when called from within its template', function() {
-  setTemplate('application', compile('<div id=\'wrapper\'>{{#my-component}}{{text}}{{/my-component}}</div>'));
-  setTemplate('components/my-component', compile('<a href=\'#\' id=\'fizzbuzz\' {{action \'fizzbuzz\'}}>Fizzbuzz</a>'));
+      this.application.instanceInitializer({
+        name: 'sally-rutherford-component-template',
+        initialize(applicationInstance) {
+          applicationInstance.register(
+            'template:components/sally-rutherford',
+            compile('funkytowny{{yield}}')
+          );
+        },
+      });
+      this.application.instanceInitializer({
+        name: 'sally-rutherford-component',
+        initialize(applicationInstance) {
+          applicationInstance.register('component:sally-rutherford', Component);
+        },
+      });
 
-  boot(() => {
-    appInstance.register('controller:application', Controller.extend({
-      actions: {
-        fizzbuzz() {
-          ok(false, 'action triggered on the wrong context');
-        }
-      }
-    }));
+      return this.visit('/').then(() => {
+        let text = this.$('#wrapper')
+          .text()
+          .trim();
+        assert.equal(
+          text,
+          'hello world funkytowny-funkytowny!!!',
+          'The component is composed correctly'
+        );
+      });
+    }
 
-    appInstance.register('component:my-component', Component.extend({
-      actions: {
-        fizzbuzz() {
-          ok(true, 'action triggered on component');
-        }
-      }
-    }));
-  });
+    ['@test Late-registered components can be rendered with ONLY the template registered on the container'](
+      assert
+    ) {
+      this.addTemplate(
+        'application',
+        `<div id='wrapper'>hello world {{borf-snorlax}}-{{#borf-snorlax}}!!!{{/borf-snorlax}}</div>`
+      );
 
-  jQuery('#fizzbuzz', '#wrapper').click();
-});
+      this.application.instanceInitializer({
+        name: 'borf-snorlax-component-template',
+        initialize(applicationInstance) {
+          applicationInstance.register(
+            'template:components/borf-snorlax',
+            compile('goodfreakingTIMES{{yield}}')
+          );
+        },
+      });
+
+      return this.visit('/').then(() => {
+        let text = this.$('#wrapper')
+          .text()
+          .trim();
+        assert.equal(
+          text,
+          'hello world goodfreakingTIMES-goodfreakingTIMES!!!',
+          'The component is composed correctly'
+        );
+      });
+    }
+
+    ['@test Assigning layoutName to a component should setup the template as a layout'](assert) {
+      assert.expect(1);
+
+      this.addTemplate(
+        'application',
+        `<div id='wrapper'>{{#my-component}}{{text}}{{/my-component}}</div>`
+      );
+      this.addTemplate('foo-bar-baz', '{{text}}-{{yield}}');
+
+      this.application.instanceInitializer({
+        name: 'application-controller',
+        initialize(applicationInstance) {
+          applicationInstance.register(
+            'controller:application',
+            Controller.extend({
+              text: 'outer',
+            })
+          );
+        },
+      });
+      this.application.instanceInitializer({
+        name: 'my-component-component',
+        initialize(applicationInstance) {
+          applicationInstance.register(
+            'component:my-component',
+            Component.extend({
+              text: 'inner',
+              layoutName: 'foo-bar-baz',
+            })
+          );
+        },
+      });
+
+      return this.visit('/').then(() => {
+        let text = this.$('#wrapper')
+          .text()
+          .trim();
+        assert.equal(text, 'inner-outer', 'The component is composed correctly');
+      });
+    }
+
+    ['@test Assigning layoutName and layout to a component should use the `layout` value'](assert) {
+      assert.expect(1);
+
+      this.addTemplate(
+        'application',
+        `<div id='wrapper'>{{#my-component}}{{text}}{{/my-component}}</div>`
+      );
+      this.addTemplate('foo-bar-baz', 'No way!');
+
+      this.application.instanceInitializer({
+        name: 'application-controller-layout',
+        initialize(applicationInstance) {
+          applicationInstance.register(
+            'controller:application',
+            Controller.extend({
+              text: 'outer',
+            })
+          );
+        },
+      });
+      this.application.instanceInitializer({
+        name: 'my-component-component-layout',
+        initialize(applicationInstance) {
+          applicationInstance.register(
+            'component:my-component',
+            Component.extend({
+              text: 'inner',
+              layoutName: 'foo-bar-baz',
+              layout: compile('{{text}}-{{yield}}'),
+            })
+          );
+        },
+      });
+
+      return this.visit('/').then(() => {
+        let text = this.$('#wrapper')
+          .text()
+          .trim();
+        assert.equal(text, 'inner-outer', 'The component is composed correctly');
+      });
+    }
+
+    async ['@test Using name of component that does not exist'](assert) {
+      this.addTemplate('application', `<div id='wrapper'>{{#no-good}} {{/no-good}}</div>`);
+
+      await assert.rejectsAssertion(this.visit('/'), /.* named "no-good" .*/);
+    }
+  }
+);

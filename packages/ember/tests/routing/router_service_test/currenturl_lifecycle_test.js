@@ -1,58 +1,136 @@
-import {
-  inject,
-  readOnly
-} from 'ember-runtime';
-import { Component } from 'ember-glimmer';
-import { Route, NoneLocation } from 'ember-routing';
-import { get } from 'ember-metal';
-import {
-  RouterTestCase,
-  moduleFor
-} from 'internal-test-helpers';
+import { inject as injectService } from '@ember/service';
+import { readOnly } from '@ember/object/computed';
+import { Component } from '@ember/-internals/glimmer';
+import { Route } from '@ember/-internals/routing';
+import { get } from '@ember/-internals/metal';
+import { RouterTestCase, moduleFor } from 'internal-test-helpers';
+import { RSVP } from '@ember/-internals/runtime';
 
-import { EMBER_ROUTING_ROUTER_SERVICE } from 'ember/features';
+let results = [];
+let ROUTE_NAMES = ['index', 'child', 'sister', 'brother', 'loading'];
 
-if (EMBER_ROUTING_ROUTER_SERVICE) {
-  let results = [];
-  let ROUTE_NAMES = ['index', 'child', 'sister', 'brother'];
+let InstrumentedRoute = Route.extend({
+  routerService: injectService('router'),
 
-  let InstrumentedRoute = Route.extend({
-    routerService: inject.service('router'),
+  init() {
+    this._super(...arguments);
+    let service = get(this, 'routerService');
+    service.on('routeWillChange', transition => {
+      results.push([
+        service.get('currentRouteName'),
+        `${this.routeName} routeWillChange: ${transition.from && transition.from.name} - ${
+          transition.to.name
+        }`,
+        service.get('currentURL'),
+      ]);
+    });
+    service.on('routeDidChange', transition => {
+      results.push([
+        service.get('currentRouteName'),
+        `${this.routeName} routeDidChange: ${transition.from && transition.from.name} - ${
+          transition.to.name
+        }`,
+        service.get('currentURL'),
+      ]);
+    });
+  },
 
-    beforeModel() {
+  activate() {
+    let service = get(this, 'routerService');
+    results.push([
+      service.get('currentRouteName'),
+      `${this.routeName} activate`,
+      service.get('currentURL'),
+    ]);
+  },
+
+  redirect() {
+    let service = get(this, 'routerService');
+    results.push([
+      service.get('currentRouteName'),
+      `${this.routeName} redirect`,
+      service.get('currentURL'),
+    ]);
+  },
+
+  beforeModel() {
+    let service = get(this, 'routerService');
+    results.push([
+      service.get('currentRouteName'),
+      `${this.routeName} beforeModel`,
+      service.get('currentURL'),
+    ]);
+  },
+
+  model() {
+    let service = get(this, 'routerService');
+    results.push([
+      service.get('currentRouteName'),
+      `${this.routeName} model`,
+      service.get('currentURL'),
+    ]);
+    return new RSVP.Promise(resolve => {
+      setTimeout(resolve, 200);
+    });
+  },
+
+  afterModel() {
+    let service = get(this, 'routerService');
+    results.push([
+      service.get('currentRouteName'),
+      `${this.routeName} afterModel`,
+      service.get('currentURL'),
+    ]);
+  },
+
+  actions: {
+    willTransition(transition) {
       let service = get(this, 'routerService');
-      results.push([service.get('currentRouteName'), 'beforeModel', service.get('currentURL')]);
+      results.push([
+        service.get('currentRouteName'),
+        `${this.routeName} willTransition: ${transition.from && transition.from.name} - ${
+          transition.to.name
+        }`,
+        service.get('currentURL'),
+      ]);
+      return true;
     },
-
-    model() {
+    didTransition() {
       let service = get(this, 'routerService');
-      results.push([service.get('currentRouteName'), 'model', service.get('currentURL')]);
+      results.push([
+        service.get('currentRouteName'),
+        `${this.routeName} didTransition`,
+        service.get('currentURL'),
+      ]);
+      return true;
     },
+  },
+});
 
-    afterModel() {
-      let service = get(this, 'routerService');
-      results.push([service.get('currentRouteName'), 'afterModel', service.get('currentURL')]);
-    }
-  });
-
-  moduleFor('Router Service - currentURL', class extends RouterTestCase {
+moduleFor(
+  'Router Service - currentURL | currentRouteName',
+  class extends RouterTestCase {
     constructor() {
-      super();
+      super(...arguments);
 
       results = [];
 
-      ROUTE_NAMES.forEach((name) => {
+      ROUTE_NAMES.forEach(name => {
         let routeName = `parent.${name}`;
         this.add(`route:${routeName}`, InstrumentedRoute.extend());
         this.addTemplate(routeName, '{{current-url}}');
       });
 
+      let CurrenURLComponent = Component.extend({
+        routerService: injectService('router'),
+        currentURL: readOnly('routerService.currentURL'),
+        currentRouteName: readOnly('routerService.currentRouteName'),
+        currentRoute: readOnly('routerService.currentRoute'),
+      });
+
       this.addComponent('current-url', {
-        ComponentClass: Component.extend({
-          routerService: inject.service('router'),
-          currentURL: readOnly('routerService.currentURL')
-        }),
-        template: '{{currentURL}}'
+        ComponentClass: CurrenURLComponent,
+        template: '{{currentURL}}-{{currentRouteName}}-{{currentRoute.name}}',
       });
     }
 
@@ -99,19 +177,30 @@ if (EMBER_ROUTING_ROUTER_SERVICE) {
           return this.visit('/brother');
         })
         .then(() => {
-            assert.equal(this.routerService.get('currentURL'), '/brother');
+          assert.equal(this.routerService.get('currentURL'), '/brother');
         });
     }
 
-    ['@test RouterService#currentURL is not set during lifecycle hooks'](assert) {
+    ['@test RouterService#currentURL is not set during model lifecycle hooks until routeDidChange'](
+      assert
+    ) {
       assert.expect(2);
 
       return this.visit('/')
         .then(() => {
           assert.deepEqual(results, [
-            [null, 'beforeModel', null],
-            [null, 'model', null],
-            [null, 'afterModel', null]
+            [null, 'parent.index routeWillChange: null - parent.index', null],
+            [null, 'parent.index beforeModel', null],
+            [null, 'parent.index model', null],
+            [null, 'parent.loading activate', null],
+            [null, 'parent.loading routeWillChange: null - parent.loading', null],
+            [null, 'parent.index routeWillChange: null - parent.loading', null],
+            ['parent.loading', 'parent.index afterModel', '/'],
+            ['parent.loading', 'parent.index redirect', '/'],
+            ['parent.loading', 'parent.index activate', '/'],
+            ['parent.loading', 'parent.index didTransition', '/'],
+            ['parent.index', 'parent.loading routeDidChange: null - parent.index', '/'],
+            ['parent.index', 'parent.index routeDidChange: null - parent.index', '/'],
           ]);
 
           results = [];
@@ -120,30 +209,50 @@ if (EMBER_ROUTING_ROUTER_SERVICE) {
         })
         .then(() => {
           assert.deepEqual(results, [
-            ['parent.index', 'beforeModel', '/'],
-            ['parent.index', 'model', '/'],
-            ['parent.index', 'afterModel', '/']
+            ['parent.index', 'parent.index willTransition: parent.index - parent.child', '/'],
+            ['parent.index', 'parent.child routeWillChange: parent.index - parent.child', '/'],
+            ['parent.index', 'parent.loading routeWillChange: parent.index - parent.child', '/'],
+            ['parent.index', 'parent.index routeWillChange: parent.index - parent.child', '/'],
+            ['parent.index', 'parent.child beforeModel', '/'],
+            ['parent.index', 'parent.child model', '/'],
+            ['parent.index', 'parent.loading activate', '/'],
+            ['parent.index', 'parent.child routeWillChange: parent.index - parent.loading', '/'],
+            ['parent.index', 'parent.loading routeWillChange: parent.index - parent.loading', '/'],
+            ['parent.index', 'parent.index routeWillChange: parent.index - parent.loading', '/'],
+            ['parent.loading', 'parent.child afterModel', '/child'],
+            ['parent.loading', 'parent.child redirect', '/child'],
+            ['parent.loading', 'parent.child activate', '/child'],
+            ['parent.loading', 'parent.child didTransition', '/child'],
+            ['parent.child', 'parent.child routeDidChange: parent.index - parent.child', '/child'],
+            [
+              'parent.child',
+              'parent.loading routeDidChange: parent.index - parent.child',
+              '/child',
+            ],
+            ['parent.child', 'parent.index routeDidChange: parent.index - parent.child', '/child'],
           ]);
         });
     }
 
-    ['@test RouterService#currentURL is correctly set with component after consecutive visits'](assert) {
+    ['@test RouterService#currentURL is correctly set with component after consecutive visits'](
+      assert
+    ) {
       assert.expect(3);
 
       return this.visit('/')
         .then(() => {
-          this.assertText('/');
+          this.assertText('/-parent.index-parent.index');
 
           return this.visit('/child');
         })
         .then(() => {
-          this.assertText('/child');
+          this.assertText('/child-parent.child-parent.child');
 
           return this.visit('/');
         })
         .then(() => {
-          this.assertText('/');
+          this.assertText('/-parent.index-parent.index');
         });
     }
-  });
-}
+  }
+);

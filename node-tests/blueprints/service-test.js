@@ -1,237 +1,613 @@
 'use strict';
 
-var blueprintHelpers = require('ember-cli-blueprint-test-helpers/helpers');
-var setupTestHooks = blueprintHelpers.setupTestHooks;
-var emberNew = blueprintHelpers.emberNew;
-var emberGenerateDestroy = blueprintHelpers.emberGenerateDestroy;
-var modifyPackages = blueprintHelpers.modifyPackages;
-var setupPodConfig = blueprintHelpers.setupPodConfig;
+const blueprintHelpers = require('ember-cli-blueprint-test-helpers/helpers');
+const setupTestHooks = blueprintHelpers.setupTestHooks;
+const emberNew = blueprintHelpers.emberNew;
+const emberGenerateDestroy = blueprintHelpers.emberGenerateDestroy;
+const setupPodConfig = blueprintHelpers.setupPodConfig;
+const modifyPackages = blueprintHelpers.modifyPackages;
+const expectError = require('../helpers/expect-error');
 
-var chai = require('ember-cli-blueprint-test-helpers/chai');
-var expect = chai.expect;
+const chai = require('ember-cli-blueprint-test-helpers/chai');
+const expect = chai.expect;
 
-var generateFakePackageManifest = require('../helpers/generate-fake-package-manifest');
+const generateFakePackageManifest = require('../helpers/generate-fake-package-manifest');
+const fixture = require('../helpers/fixture');
 
-describe('Acceptance: ember generate and destroy service', function() {
+const setupTestEnvironment = require('../helpers/setup-test-environment');
+const enableModuleUnification = setupTestEnvironment.enableModuleUnification;
+const enableOctane = setupTestEnvironment.enableOctane;
+
+describe('Blueprint: service', function() {
   setupTestHooks(this);
 
-  it('service foo', function() {
-    var args = ['service', 'foo'];
+  describe('in app', function() {
+    beforeEach(function() {
+      return emberNew()
+        .then(() =>
+          modifyPackages([
+            { name: 'ember-qunit', delete: true },
+            { name: 'ember-cli-qunit', dev: true },
+          ])
+        )
+        .then(() => generateFakePackageManifest('ember-cli-qunit', '4.1.0'));
+    });
 
-    return emberNew()
-      .then(() => emberGenerateDestroy(args, _file => {
-        expect(_file('app/services/foo.js'))
-          .to.contain("import Ember from 'ember';")
-          .to.contain('export default Ember.Service.extend({\n});');
+    it('service foo', function() {
+      return emberGenerateDestroy(['service', 'foo'], _file => {
+        expect(_file('app/services/foo.js')).to.equal(fixture('service/service.js'));
 
-        expect(_file('tests/unit/services/foo-test.js'))
-          .to.contain("import { moduleFor, test } from 'ember-qunit';")
-          .to.contain("moduleFor('service:foo'");
-      }));
+        expect(_file('tests/unit/services/foo-test.js')).to.equal(
+          fixture('service-test/default.js')
+        );
+      });
+    });
+
+    it('service foo.js', function() {
+      return emberGenerateDestroy(['service', 'foo.js'], _file => {
+        expect(_file('app/services/foo.js.js')).to.not.exist;
+        expect(_file('tests/unit/services/foo-test.js.js')).to.not.exist;
+
+        expect(_file('app/services/foo.js')).to.equal(fixture('service/service.js'));
+
+        expect(_file('tests/unit/services/foo-test.js')).to.equal(
+          fixture('service-test/default.js')
+        );
+      });
+    });
+
+    it('service foo/bar', function() {
+      return emberGenerateDestroy(['service', 'foo/bar'], _file => {
+        expect(_file('app/services/foo/bar.js')).to.equal(fixture('service/service-nested.js'));
+
+        expect(_file('tests/unit/services/foo/bar-test.js')).to.equal(
+          fixture('service-test/default-nested.js')
+        );
+      });
+    });
+
+    it('service foo --pod', function() {
+      return emberGenerateDestroy(['service', 'foo', '--pod'], _file => {
+        expect(_file('app/foo/service.js')).to.equal(fixture('service/service.js'));
+
+        expect(_file('tests/unit/foo/service-test.js')).to.equal(
+          fixture('service-test/default.js')
+        );
+      });
+    });
+
+    it('service foo.js --pod', function() {
+      return emberGenerateDestroy(['service', 'foo.js', '--pod'], _file => {
+        expect(_file('app/foo.js/service.js')).to.not.exist;
+        expect(_file('tests/unit/foo.js/service-test.js')).to.not.exist;
+
+        expect(_file('app/foo/service.js')).to.equal(fixture('service/service.js'));
+
+        expect(_file('tests/unit/foo/service-test.js')).to.equal(
+          fixture('service-test/default.js')
+        );
+      });
+    });
+
+    it('service foo/bar --pod', function() {
+      return emberGenerateDestroy(['service', 'foo/bar', '--pod'], _file => {
+        expect(_file('app/foo/bar/service.js')).to.equal(fixture('service/service-nested.js'));
+
+        expect(_file('tests/unit/foo/bar/service-test.js')).to.equal(
+          fixture('service-test/default-nested.js')
+        );
+      });
+    });
+
+    describe('with podModulePrefix', function() {
+      beforeEach(function() {
+        setupPodConfig({ podModulePrefix: true });
+      });
+
+      it('service foo --pod', function() {
+        return emberGenerateDestroy(['service', 'foo', '--pod'], _file => {
+          expect(_file('app/pods/foo/service.js')).to.equal(fixture('service/service.js'));
+
+          expect(_file('tests/unit/pods/foo/service-test.js')).to.equal(
+            fixture('service-test/default.js')
+          );
+        });
+      });
+
+      it('service foo.js --pod', function() {
+        return emberGenerateDestroy(['service', 'foo.js', '--pod'], _file => {
+          expect(_file('app/pods/foo.js/service.js')).to.not.exist;
+          expect(_file('tests/unit/pods/foo.js/service-test.js')).to.not.exist;
+
+          expect(_file('app/pods/foo/service.js')).to.equal(fixture('service/service.js'));
+
+          expect(_file('tests/unit/pods/foo/service-test.js')).to.equal(
+            fixture('service-test/default.js')
+          );
+        });
+      });
+
+      it('service foo/bar --pod', function() {
+        return emberGenerateDestroy(['service', 'foo/bar', '--pod'], _file => {
+          expect(_file('app/pods/foo/bar/service.js')).to.equal(
+            fixture('service/service-nested.js')
+          );
+
+          expect(_file('tests/unit/pods/foo/bar/service-test.js')).to.equal(
+            fixture('service-test/default-nested.js')
+          );
+        });
+      });
+    });
   });
 
-  it('service foo/bar', function() {
-    var args = ['service', 'foo/bar'];
+  describe('in app - module unification', function() {
+    enableModuleUnification();
 
-    return emberNew()
-      .then(() => emberGenerateDestroy(args, _file => {
-        expect(_file('app/services/foo/bar.js'))
-          .to.contain("import Ember from 'ember';")
-          .to.contain('export default Ember.Service.extend({\n});');
+    beforeEach(function() {
+      return emberNew()
+        .then(() =>
+          modifyPackages([
+            { name: 'ember-qunit', delete: true },
+            { name: 'ember-cli-qunit', dev: true },
+          ])
+        )
+        .then(() => generateFakePackageManifest('ember-cli-qunit', '4.1.0'));
+    });
 
-        expect(_file('tests/unit/services/foo/bar-test.js'))
-          .to.contain("import { moduleFor, test } from 'ember-qunit';")
-          .to.contain("moduleFor('service:foo/bar'");
-      }));
-  });
-  it('in-addon service foo', function() {
-    var args = ['service', 'foo'];
+    it('service foo', function() {
+      return emberGenerateDestroy(['service', 'foo'], _file => {
+        expect(_file('src/services/foo.js')).to.equal(fixture('service/service.js'));
 
-    return emberNew({ target: 'addon' })
-      .then(() => emberGenerateDestroy(args, _file => {
-        expect(_file('addon/services/foo.js'))
-          .to.contain("import Ember from 'ember';")
-          .to.contain('export default Ember.Service.extend({\n});');
+        expect(_file('src/services/foo-test.js')).to.equal(fixture('service-test/default.js'));
+      });
+    });
 
-        expect(_file('app/services/foo.js'))
-          .to.contain("export { default } from 'my-addon/services/foo';");
+    it('service foo.js', function() {
+      return emberGenerateDestroy(['service', 'foo.js'], _file => {
+        expect(_file('src/services/foo.js.js')).to.not.exist;
+        expect(_file('src/services/foo.js-test.js')).to.not.exist;
 
-        expect(_file('tests/unit/services/foo-test.js'))
-          .to.contain("import { moduleFor, test } from 'ember-qunit';")
-          .to.contain("moduleFor('service:foo'");
-      }));
-  });
+        expect(_file('src/services/foo.js')).to.equal(fixture('service/service.js'));
 
-  it('in-addon service foo/bar', function() {
-    var args = ['service', 'foo/bar'];
+        expect(_file('src/services/foo-test.js')).to.equal(fixture('service-test/default.js'));
+      });
+    });
 
-    return emberNew({ target: 'addon' })
-      .then(() => emberGenerateDestroy(args, _file => {
-        expect(_file('addon/services/foo/bar.js'))
-          .to.contain("import Ember from 'ember';")
-          .to.contain('export default Ember.Service.extend({\n});');
+    it('service foo/bar', function() {
+      return emberGenerateDestroy(['service', 'foo/bar'], _file => {
+        expect(_file('src/services/foo/bar.js')).to.equal(fixture('service/service-nested.js'));
 
-        expect(_file('app/services/foo/bar.js'))
-          .to.contain("export { default } from 'my-addon/services/foo/bar';");
+        expect(_file('src/services/foo/bar-test.js')).to.equal(
+          fixture('service-test/default-nested.js')
+        );
+      });
+    });
 
-        expect(_file('tests/unit/services/foo/bar-test.js'))
-          .to.contain("import { moduleFor, test } from 'ember-qunit';")
-          .to.contain("moduleFor('service:foo/bar'");
-      }));
-  });
-
-  it('service foo --pod', function() {
-    var args = ['service', 'foo', '--pod'];
-
-    return emberNew()
-      .then(() => emberGenerateDestroy(args, _file => {
-        expect(_file('app/foo/service.js'))
-          .to.contain("import Ember from 'ember';")
-          .to.contain('export default Ember.Service.extend({\n});');
-
-        expect(_file('tests/unit/foo/service-test.js'))
-          .to.contain("import { moduleFor, test } from 'ember-qunit';")
-          .to.contain("moduleFor('service:foo'");
-      }));
+    it('service foo --pod', function() {
+      return expectError(
+        emberGenerateDestroy(['service', 'foo', '--pod']),
+        "Pods aren't supported within a module unification app"
+      );
+    });
   });
 
-  it('service foo/bar --pod', function() {
-    var args = ['service', 'foo/bar', '--pod'];
+  describe('in app - octane', function() {
+    enableOctane();
 
-    return emberNew()
-      .then(() => emberGenerateDestroy(args, _file => {
-        expect(_file('app/foo/bar/service.js'))
-          .to.contain("import Ember from 'ember';")
-          .to.contain('export default Ember.Service.extend({\n});');
+    beforeEach(function() {
+      return emberNew()
+        .then(() =>
+          modifyPackages([
+            { name: 'ember-qunit', delete: true },
+            { name: 'ember-cli-qunit', dev: true },
+          ])
+        )
+        .then(() => generateFakePackageManifest('ember-cli-qunit', '4.1.0'));
+    });
 
-        expect(_file('tests/unit/foo/bar/service-test.js'))
-          .to.contain("import { moduleFor, test } from 'ember-qunit';")
-          .to.contain("moduleFor('service:foo/bar'");
-      }));
+    it('service foo', function() {
+      return emberGenerateDestroy(['service', 'foo'], _file => {
+        expect(_file('app/services/foo.js')).to.equal(fixture('service/native-service.js'));
+
+        expect(_file('tests/unit/services/foo-test.js')).to.equal(
+          fixture('service-test/default.js')
+        );
+      });
+    });
+
+    it('service foo.js', function() {
+      return emberGenerateDestroy(['service', 'foo.js'], _file => {
+        expect(_file('app/services/foo.js.js')).to.not.exist;
+        expect(_file('tests/unit/services/foo.js-test.js')).to.not.exist;
+
+        expect(_file('app/services/foo.js')).to.equal(fixture('service/native-service.js'));
+
+        expect(_file('tests/unit/services/foo-test.js')).to.equal(
+          fixture('service-test/default.js')
+        );
+      });
+    });
+
+    it('service foo/bar', function() {
+      return emberGenerateDestroy(['service', 'foo/bar'], _file => {
+        expect(_file('app/services/foo/bar.js')).to.equal(
+          fixture('service/native-service-nested.js')
+        );
+
+        expect(_file('tests/unit/services/foo/bar-test.js')).to.equal(
+          fixture('service-test/default-nested.js')
+        );
+      });
+    });
+
+    it('service foo --pod', function() {
+      return emberGenerateDestroy(['service', 'foo', '--pod'], _file => {
+        expect(_file('app/foo/service.js')).to.equal(fixture('service/native-service.js'));
+
+        expect(_file('tests/unit/foo/service-test.js')).to.equal(
+          fixture('service-test/default.js')
+        );
+      });
+    });
+
+    it('service foo.js --pod', function() {
+      return emberGenerateDestroy(['service', 'foo.js', '--pod'], _file => {
+        expect(_file('app/foo.js/service.js')).to.not.exist;
+        expect(_file('tests/unit/foo.js/service-test.js')).to.not.exist;
+
+        expect(_file('app/foo/service.js')).to.equal(fixture('service/native-service.js'));
+
+        expect(_file('tests/unit/foo/service-test.js')).to.equal(
+          fixture('service-test/default.js')
+        );
+      });
+    });
+
+    it('service foo/bar --pod', function() {
+      return emberGenerateDestroy(['service', 'foo/bar', '--pod'], _file => {
+        expect(_file('app/foo/bar/service.js')).to.equal(
+          fixture('service/native-service-nested.js')
+        );
+
+        expect(_file('tests/unit/foo/bar/service-test.js')).to.equal(
+          fixture('service-test/default-nested.js')
+        );
+      });
+    });
+
+    describe('with podModulePrefix', function() {
+      beforeEach(function() {
+        setupPodConfig({ podModulePrefix: true });
+      });
+
+      it('service foo --pod', function() {
+        return emberGenerateDestroy(['service', 'foo', '--pod'], _file => {
+          expect(_file('app/pods/foo/service.js')).to.equal(fixture('service/native-service.js'));
+
+          expect(_file('tests/unit/pods/foo/service-test.js')).to.equal(
+            fixture('service-test/default.js')
+          );
+        });
+      });
+
+      it('service foo.js --pod', function() {
+        return emberGenerateDestroy(['service', 'foo.js', '--pod'], _file => {
+          expect(_file('app/pods/foo.js/service.js')).to.not.exist;
+          expect(_file('tests/unit/pods/foo.js/service-test.js')).to.not.exist;
+
+          expect(_file('app/pods/foo/service.js')).to.equal(fixture('service/native-service.js'));
+
+          expect(_file('tests/unit/pods/foo/service-test.js')).to.equal(
+            fixture('service-test/default.js')
+          );
+        });
+      });
+
+      it('service foo/bar --pod', function() {
+        return emberGenerateDestroy(['service', 'foo/bar', '--pod'], _file => {
+          expect(_file('app/pods/foo/bar/service.js')).to.equal(
+            fixture('service/native-service-nested.js')
+          );
+
+          expect(_file('tests/unit/pods/foo/bar/service-test.js')).to.equal(
+            fixture('service-test/default-nested.js')
+          );
+        });
+      });
+    });
   });
 
-  it('service foo --pod podModulePrefix', function() {
-    var args = ['service', 'foo', '--pod'];
+  describe('in addon', function() {
+    beforeEach(function() {
+      return emberNew({ target: 'addon' })
+        .then(() =>
+          modifyPackages([
+            { name: 'ember-qunit', delete: true },
+            { name: 'ember-cli-qunit', dev: true },
+          ])
+        )
+        .then(() => generateFakePackageManifest('ember-cli-qunit', '4.1.0'));
+    });
 
-    return emberNew()
-      .then(() => setupPodConfig({ podModulePrefix: true }))
-      .then(() => emberGenerateDestroy(args, _file => {
-        expect(_file('app/pods/foo/service.js'))
-          .to.contain("import Ember from 'ember';")
-          .to.contain('export default Ember.Service.extend({\n});');
+    it('service foo', function() {
+      return emberGenerateDestroy(['service', 'foo'], _file => {
+        expect(_file('addon/services/foo.js')).to.equal(fixture('service/service.js'));
 
-        expect(_file('tests/unit/pods/foo/service-test.js'))
-          .to.contain("import { moduleFor, test } from 'ember-qunit';")
-          .to.contain("moduleFor('service:foo'");
-      }));
+        expect(_file('app/services/foo.js')).to.contain(
+          "export { default } from 'my-addon/services/foo';"
+        );
+
+        expect(_file('tests/unit/services/foo-test.js')).to.equal(
+          fixture('service-test/default.js')
+        );
+      });
+    });
+
+    it('service foo.js', function() {
+      return emberGenerateDestroy(['service', 'foo.js'], _file => {
+        expect(_file('addon/services/foo.js.js')).to.not.exist;
+        expect(_file('app/services/foo.js.js')).to.not.exist;
+        expect(_file('tests/unit/services/foo.js-test.js')).to.not.exist;
+
+        expect(_file('addon/services/foo.js')).to.equal(fixture('service/service.js'));
+
+        expect(_file('app/services/foo.js')).to.contain(
+          "export { default } from 'my-addon/services/foo';"
+        );
+
+        expect(_file('tests/unit/services/foo-test.js')).to.equal(
+          fixture('service-test/default.js')
+        );
+      });
+    });
+
+    it('service foo/bar', function() {
+      return emberGenerateDestroy(['service', 'foo/bar'], _file => {
+        expect(_file('addon/services/foo/bar.js')).to.equal(fixture('service/service-nested.js'));
+
+        expect(_file('app/services/foo/bar.js')).to.contain(
+          "export { default } from 'my-addon/services/foo/bar';"
+        );
+
+        expect(_file('tests/unit/services/foo/bar-test.js')).to.equal(
+          fixture('service-test/default-nested.js')
+        );
+      });
+    });
+
+    it('service foo/bar --dummy', function() {
+      return emberGenerateDestroy(['service', 'foo/bar', '--dummy'], _file => {
+        expect(_file('tests/dummy/app/services/foo/bar.js')).to.equal(
+          fixture('service/service-nested.js')
+        );
+        expect(_file('addon/services/foo/bar.js')).to.not.exist;
+      });
+    });
+
+    it('service foo/bar.js --dummy', function() {
+      return emberGenerateDestroy(['service', 'foo/bar.js', '--dummy'], _file => {
+        expect(_file('tests/dummy/app/services/foo/bar.js.js')).to.not.exist;
+
+        expect(_file('tests/dummy/app/services/foo/bar.js')).to.equal(
+          fixture('service/service-nested.js')
+        );
+        expect(_file('addon/services/foo/bar.js')).to.not.exist;
+      });
+    });
   });
 
-  it('service foo/bar --pod podModulePrefix', function() {
-    var args = ['service', 'foo/bar', '--pod'];
+  describe('in addon - module unification', function() {
+    enableModuleUnification();
 
-    return emberNew()
-      .then(() => setupPodConfig({ podModulePrefix: true }))
-      .then(() => emberGenerateDestroy(args, _file => {
-        expect(_file('app/pods/foo/bar/service.js'))
-          .to.contain("import Ember from 'ember';")
-          .to.contain('export default Ember.Service.extend({\n});');
+    beforeEach(function() {
+      return emberNew({ target: 'addon' })
+        .then(() =>
+          modifyPackages([
+            { name: 'ember-qunit', delete: true },
+            { name: 'ember-cli-qunit', dev: true },
+          ])
+        )
+        .then(() => generateFakePackageManifest('ember-cli-qunit', '4.1.0'));
+    });
 
-        expect(_file('tests/unit/pods/foo/bar/service-test.js'))
-          .to.contain("import { moduleFor, test } from 'ember-qunit';")
-          .to.contain("moduleFor('service:foo/bar'");
-      }));
+    it('service foo', function() {
+      return emberGenerateDestroy(['service', 'foo'], _file => {
+        expect(_file('src/services/foo.js')).to.equal(fixture('service/service.js'));
+
+        expect(_file('src/services/foo-test.js')).to.equal(fixture('service-test/default.js'));
+
+        expect(_file('app/services/foo.js')).to.not.exist;
+      });
+    });
+
+    it('service foo.js', function() {
+      return emberGenerateDestroy(['service', 'foo'], _file => {
+        expect(_file('src/services/foo.js.js')).to.not.exist;
+        expect(_file('src/services/foo.js-test.js')).to.not.exist;
+
+        expect(_file('src/services/foo.js')).to.equal(fixture('service/service.js'));
+
+        expect(_file('src/services/foo-test.js')).to.equal(fixture('service-test/default.js'));
+
+        expect(_file('app/services/foo.js')).to.not.exist;
+      });
+    });
+
+    it('service foo/bar', function() {
+      return emberGenerateDestroy(['service', 'foo/bar'], _file => {
+        expect(_file('src/services/foo/bar.js')).to.equal(fixture('service/service-nested.js'));
+
+        expect(_file('src/services/foo/bar-test.js')).to.equal(
+          fixture('service-test/default-nested.js')
+        );
+
+        expect(_file('app/services/foo/bar.js')).to.not.exist;
+      });
+    });
+
+    it('service foo/bar --dummy', function() {
+      return emberGenerateDestroy(['service', 'foo/bar', '--dummy'], _file => {
+        expect(_file('tests/dummy/src/services/foo/bar.js')).to.equal(
+          fixture('service/service-nested.js')
+        );
+        expect(_file('src/services/foo/bar.js')).to.not.exist;
+      });
+    });
+
+    it('service foo/bar.js --dummy', function() {
+      return emberGenerateDestroy(['service', 'foo/bar.js', '--dummy'], _file => {
+        expect(_file('tests/dummy/src/services/foo/bar.js.js')).to.not.exist;
+
+        expect(_file('tests/dummy/src/services/foo/bar.js')).to.equal(
+          fixture('service/service-nested.js')
+        );
+        expect(_file('src/services/foo/bar.js')).to.not.exist;
+      });
+    });
   });
 
-  it('service-test foo', function() {
-    var args = ['service-test', 'foo'];
+  describe('in addon - octane', function() {
+    enableOctane();
 
-    return emberNew()
-      .then(() => emberGenerateDestroy(args, _file => {
-        expect(_file('tests/unit/services/foo-test.js'))
-          .to.contain("import { moduleFor, test } from 'ember-qunit';")
-          .to.contain("moduleFor('service:foo'");
-      }));
+    beforeEach(function() {
+      return emberNew({ target: 'addon' })
+        .then(() =>
+          modifyPackages([
+            { name: 'ember-qunit', delete: true },
+            { name: 'ember-cli-qunit', dev: true },
+          ])
+        )
+        .then(() => generateFakePackageManifest('ember-cli-qunit', '4.1.0'));
+    });
+
+    it('service foo', function() {
+      return emberGenerateDestroy(['service', 'foo'], _file => {
+        expect(_file('addon/services/foo.js')).to.equal(fixture('service/native-service.js'));
+
+        expect(_file('app/services/foo.js')).to.contain(
+          "export { default } from 'my-addon/services/foo';"
+        );
+
+        expect(_file('tests/unit/services/foo-test.js')).to.equal(
+          fixture('service-test/default.js')
+        );
+      });
+    });
+
+    it('service foo.js', function() {
+      return emberGenerateDestroy(['service', 'foo.js'], _file => {
+        expect(_file('addon/services/foo.js.js')).to.not.exist;
+        expect(_file('app/services/foo.js.js')).to.not.exist;
+        expect(_file('tests/unit/services/foo.js-test.js')).to.not.exist;
+
+        expect(_file('addon/services/foo.js')).to.equal(fixture('service/native-service.js'));
+
+        expect(_file('app/services/foo.js')).to.contain(
+          "export { default } from 'my-addon/services/foo';"
+        );
+
+        expect(_file('tests/unit/services/foo-test.js')).to.equal(
+          fixture('service-test/default.js')
+        );
+      });
+    });
+
+    it('service foo/bar', function() {
+      return emberGenerateDestroy(['service', 'foo/bar'], _file => {
+        expect(_file('addon/services/foo/bar.js')).to.equal(
+          fixture('service/native-service-nested.js')
+        );
+
+        expect(_file('app/services/foo/bar.js')).to.contain(
+          "export { default } from 'my-addon/services/foo/bar';"
+        );
+
+        expect(_file('tests/unit/services/foo/bar-test.js')).to.equal(
+          fixture('service-test/default-nested.js')
+        );
+      });
+    });
+
+    it('service foo/bar --dummy', function() {
+      return emberGenerateDestroy(['service', 'foo/bar', '--dummy'], _file => {
+        expect(_file('tests/dummy/app/services/foo/bar.js')).to.equal(
+          fixture('service/native-service-nested.js')
+        );
+        expect(_file('addon/services/foo/bar.js')).to.not.exist;
+      });
+    });
+
+    it('service foo/bar.js --dummy', function() {
+      return emberGenerateDestroy(['service', 'foo/bar.js', '--dummy'], _file => {
+        expect(_file('tests/dummy/app/services/foo/bar.js.js')).to.not.exist;
+
+        expect(_file('tests/dummy/app/services/foo/bar.js')).to.equal(
+          fixture('service/native-service-nested.js')
+        );
+        expect(_file('addon/services/foo/bar.js')).to.not.exist;
+      });
+    });
   });
 
-  it('in-addon service-test foo', function() {
-    var args = ['service-test', 'foo'];
+  describe('in in-repo-addon', function() {
+    beforeEach(function() {
+      return emberNew({ target: 'in-repo-addon' })
+        .then(() =>
+          modifyPackages([
+            { name: 'ember-qunit', delete: true },
+            { name: 'ember-cli-qunit', dev: true },
+          ])
+        )
+        .then(() => generateFakePackageManifest('ember-cli-qunit', '4.1.0'));
+    });
 
-    return emberNew({ target: 'addon' })
-      .then(() => emberGenerateDestroy(args, _file => {
-        expect(_file('tests/unit/services/foo-test.js'))
-          .to.contain("import { moduleFor, test } from 'ember-qunit';")
-          .to.contain("moduleFor('service:foo'");
+    it('service foo --in-repo-addon=my-addon', function() {
+      return emberGenerateDestroy(['service', 'foo', '--in-repo-addon=my-addon'], _file => {
+        expect(_file('lib/my-addon/addon/services/foo.js')).to.equal(fixture('service/service.js'));
 
-        expect(_file('app/service-test/foo.js'))
-          .to.not.exist;
-      }));
-  });
+        expect(_file('lib/my-addon/app/services/foo.js')).to.contain(
+          "export { default } from 'my-addon/services/foo';"
+        );
 
-  it('service-test foo for mocha', function() {
-    var args = ['service-test', 'foo'];
+        expect(_file('tests/unit/services/foo-test.js')).to.equal(
+          fixture('service-test/default.js')
+        );
+      });
+    });
 
-    return emberNew()
-      .then(() => modifyPackages([
-        { name: 'ember-cli-qunit', delete: true },
-        { name: 'ember-cli-mocha', dev: true }
-      ]))
-      .then(() => generateFakePackageManifest('ember-cli-mocha', '0.11.0'))
-      .then(() => emberGenerateDestroy(args, _file => {
-        expect(_file('tests/unit/services/foo-test.js'))
-          .to.contain("import { describeModule, it } from 'ember-mocha';")
-          .to.contain("describeModule('service:foo', 'Unit | Service | foo'");
-      }));
-  });
+    it('service foo.js --in-repo-addon=my-addon', function() {
+      return emberGenerateDestroy(['service', 'foo.js', '--in-repo-addon=my-addon'], _file => {
+        expect(_file('lib/my-addon/addon/services/foo.js.js')).to.not.exist;
+        expect(_file('lib/my-addon/app/services/foo.js.js')).to.not.exist;
+        expect(_file('tests/unit/services/foo.js-test.js')).to.not.exist;
 
-  it('service-test foo for mocha --pod', function() {
-    var args = ['service-test', 'foo', '--pod'];
+        expect(_file('lib/my-addon/addon/services/foo.js')).to.equal(fixture('service/service.js'));
 
-    return emberNew()
-      .then(() => modifyPackages([
-        { name: 'ember-cli-qunit', delete: true },
-        { name: 'ember-cli-mocha', dev: true }
-      ]))
-      .then(() => generateFakePackageManifest('ember-cli-mocha', '0.11.0'))
-      .then(() => emberGenerateDestroy(args, _file => {
-        expect(_file('tests/unit/foo/service-test.js'))
-          .to.contain("import { describeModule, it } from 'ember-mocha';")
-          .to.contain("describeModule('service:foo', 'Unit | Service | foo'");
-      }));
-  });
+        expect(_file('lib/my-addon/app/services/foo.js')).to.contain(
+          "export { default } from 'my-addon/services/foo';"
+        );
 
-  it('service-test foo for mocha v0.12+', function() {
-    var args = ['service-test', 'foo'];
+        expect(_file('tests/unit/services/foo-test.js')).to.equal(
+          fixture('service-test/default.js')
+        );
+      });
+    });
 
-    return emberNew()
-      .then(() => modifyPackages([
-        { name: 'ember-cli-qunit', delete: true },
-        { name: 'ember-cli-mocha', dev: true }
-      ]))
-      .then(() => generateFakePackageManifest('ember-cli-mocha', '0.12.0'))
-      .then(() => emberGenerateDestroy(args, _file => {
-        expect(_file('tests/unit/services/foo-test.js'))
-          .to.contain("import { describe, it } from 'mocha';")
-          .to.contain("import { setupTest } from 'ember-mocha';")
-          .to.contain("describe('Unit | Service | foo', function() {")
-          .to.contain("setupTest('service:foo',");
-      }));
-  });
+    it('service foo/bar --in-repo-addon=my-addon', function() {
+      return emberGenerateDestroy(['service', 'foo/bar', '--in-repo-addon=my-addon'], _file => {
+        expect(_file('lib/my-addon/addon/services/foo/bar.js')).to.equal(
+          fixture('service/service-nested.js')
+        );
 
-  it('service-test foo for mocha v0.12+ --pod', function() {
-    var args = ['service-test', 'foo', '--pod'];
+        expect(_file('lib/my-addon/app/services/foo/bar.js')).to.contain(
+          "export { default } from 'my-addon/services/foo/bar';"
+        );
 
-    return emberNew()
-      .then(() => modifyPackages([
-        { name: 'ember-cli-qunit', delete: true },
-        { name: 'ember-cli-mocha', dev: true }
-      ]))
-      .then(() => generateFakePackageManifest('ember-cli-mocha', '0.12.0'))
-      .then(() => emberGenerateDestroy(args, _file => {
-        expect(_file('tests/unit/foo/service-test.js'))
-          .to.contain("import { describe, it } from 'mocha';")
-          .to.contain("import { setupTest } from 'ember-mocha';")
-          .to.contain("describe('Unit | Service | foo', function() {")
-          .to.contain("setupTest('service:foo',");
-      }));
+        expect(_file('tests/unit/services/foo/bar-test.js')).to.equal(
+          fixture('service-test/default-nested.js')
+        );
+      });
+    });
   });
 });

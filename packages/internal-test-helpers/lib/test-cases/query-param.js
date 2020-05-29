@@ -1,43 +1,51 @@
-import { Controller } from 'ember-runtime';
-import { NoneLocation } from 'ember-routing';
-import { run } from 'ember-metal';
+import Controller from '@ember/controller';
+import { NoneLocation } from '@ember/-internals/routing';
 
 import ApplicationTestCase from './application';
+import { runLoopSettled } from '../run';
 
 export default class QueryParamTestCase extends ApplicationTestCase {
   constructor() {
-    super();
+    super(...arguments);
 
     let testCase = this;
     testCase.expectedPushURL = null;
     testCase.expectedReplaceURL = null;
-    this.add('location:test', NoneLocation.extend({
-      setURL(path) {
-        if (testCase.expectedReplaceURL) {
-          testCase.assert.ok(false, 'pushState occurred but a replaceState was expected');
-        }
 
-        if (testCase.expectedPushURL) {
-          testCase.assert.equal(path, testCase.expectedPushURL, 'an expected pushState occurred');
-          testCase.expectedPushURL = null;
-        }
+    this.add(
+      'location:test',
+      NoneLocation.extend({
+        setURL(path) {
+          if (testCase.expectedReplaceURL) {
+            testCase.assert.ok(false, 'pushState occurred but a replaceState was expected');
+          }
 
-        this.set('path', path);
-      },
+          if (testCase.expectedPushURL) {
+            testCase.assert.equal(path, testCase.expectedPushURL, 'an expected pushState occurred');
+            testCase.expectedPushURL = null;
+          }
 
-      replaceURL(path) {
-        if (testCase.expectedPushURL) {
-          testCase.assert.ok(false, 'replaceState occurred but a pushState was expected');
-        }
+          this.set('path', path);
+        },
 
-        if (testCase.expectedReplaceURL) {
-          testCase.assert.equal(path, testCase.expectedReplaceURL, 'an expected replaceState occurred');
-          testCase.expectedReplaceURL = null;
-        }
+        replaceURL(path) {
+          if (testCase.expectedPushURL) {
+            testCase.assert.ok(false, 'replaceState occurred but a pushState was expected');
+          }
 
-        this.set('path', path);
-      }
-    }));
+          if (testCase.expectedReplaceURL) {
+            testCase.assert.equal(
+              path,
+              testCase.expectedReplaceURL,
+              'an expected replaceState occurred'
+            );
+            testCase.expectedReplaceURL = null;
+          }
+
+          this.set('path', path);
+        },
+      })
+    );
   }
 
   visitAndAssert(path) {
@@ -56,12 +64,18 @@ export default class QueryParamTestCase extends ApplicationTestCase {
 
   get routerOptions() {
     return {
-      location: 'test'
+      location: 'test',
     };
   }
 
-  setAndFlush(obj, prop, value) {
-    return run(obj, 'set', prop, value);
+  async setAndFlush(obj, prop, value) {
+    if (typeof prop === 'object') {
+      obj.setProperties(prop);
+    } else {
+      obj.set(prop, value);
+    }
+
+    await runLoopSettled();
   }
 
   assertCurrentPath(path, message = `current path equals '${path}'`) {
@@ -76,10 +90,16 @@ export default class QueryParamTestCase extends ApplicationTestCase {
     @method setSingleQPController
   */
   setSingleQPController(routeName, param = 'foo', defaultValue = 'bar', options = {}) {
-    this.add(`controller:${routeName}`, Controller.extend({
-      queryParams: [param],
-      [param]: defaultValue
-    }, options));
+    this.add(
+      `controller:${routeName}`,
+      Controller.extend(
+        {
+          queryParams: [param],
+          [param]: defaultValue,
+        },
+        options
+      )
+    );
   }
 
   /**
@@ -88,12 +108,24 @@ export default class QueryParamTestCase extends ApplicationTestCase {
     @public
     @method setMappedQPController
   */
-  setMappedQPController(routeName, prop = 'page', urlKey = 'parentPage', defaultValue = 1, options = {}) {
-    this.add(`controller:${routeName}`, Controller.extend({
-      queryParams: {
-        [prop]: urlKey
-      },
-      [prop]: defaultValue
-    }, options));
+  setMappedQPController(
+    routeName,
+    prop = 'page',
+    urlKey = 'parentPage',
+    defaultValue = 1,
+    options = {}
+  ) {
+    this.add(
+      `controller:${routeName}`,
+      Controller.extend(
+        {
+          queryParams: {
+            [prop]: urlKey,
+          },
+          [prop]: defaultValue,
+        },
+        options
+      )
+    );
   }
 }

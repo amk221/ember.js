@@ -1,5 +1,4 @@
-import Logger from 'ember-console';
-import { setDispatchOverride } from 'ember-metal';
+import { setDispatchOverride } from '@ember/-internals/error-handling';
 
 let adapter;
 export function getAdapter() {
@@ -8,7 +7,7 @@ export function getAdapter() {
 
 export function setAdapter(value) {
   adapter = value;
-  if (value) {
+  if (value && typeof value.exception === 'function') {
     setDispatchOverride(adapterDispatch);
   } else {
     setDispatchOverride(null);
@@ -29,5 +28,6 @@ export function asyncEnd() {
 
 function adapterDispatch(error) {
   adapter.exception(error);
-  Logger.error(error.stack);
+
+  console.error(error.stack); // eslint-disable-line no-console
 }

@@ -1,42 +1,63 @@
-import { run } from 'ember-metal';
-import { jQuery } from 'ember-views';
-import { Application } from 'ember-application';
-import { Router } from 'ember-routing';
 import { compile } from 'ember-template-compiler';
-
+import { ENV } from '@ember/-internals/environment';
 import AbstractTestCase from './abstract';
-import { ModuleBasedResolver } from '../test-resolver';
-import { runDestroy } from '../run';
+import { runDestroy, runTask, runLoopSettled } from '../run';
 
 export default class AbstractApplicationTestCase extends AbstractTestCase {
-  constructor() {
-    super();
-
-    this.element = jQuery('#qunit-fixture')[0];
-
-    let { applicationOptions } = this;
-    this.application = run(Application, 'create', applicationOptions);
-
-    this.resolver = applicationOptions.Resolver.lastInstance;
-
-    if (this.resolver) {
-      this.resolver.add('router:main', Router.extend(this.routerOptions));
+  _ensureInstance(bootOptions) {
+    if (this._applicationInstancePromise) {
+      return this._applicationInstancePromise;
     }
 
-    this.applicationInstance = null;
+    return (this._applicationInstancePromise = runTask(() => this.application.boot()).then(app => {
+      this.applicationInstance = app.buildInstance();
+
+      return this.applicationInstance.boot(bootOptions);
+    }));
+  }
+
+  async visit(url, options) {
+    // Create the instance
+    let instance = await this._ensureInstance(options).then(instance =>
+      runTask(() => instance.visit(url))
+    );
+
+    // Await all asynchronous actions
+    await runLoopSettled();
+
+    return instance;
+  }
+
+  get element() {
+    if (this._element) {
+      return this._element;
+    } else if (ENV._APPLICATION_TEMPLATE_WRAPPER) {
+      return (this._element = document.querySelector('#qunit-fixture > div.ember-view'));
+    } else {
+      return (this._element = document.querySelector('#qunit-fixture'));
+    }
+  }
+
+  set element(element) {
+    this._element = element;
+  }
+
+  afterEach() {
+    runDestroy(this.applicationInstance);
+    runDestroy(this.application);
+
+    super.teardown();
   }
 
   get applicationOptions() {
     return {
       rootElement: '#qunit-fixture',
-      autoboot: false,
-      Resolver: ModuleBasedResolver
     };
   }
 
   get routerOptions() {
     return {
-      location: 'none'
+      location: 'none',
     };
   }
 
@@ -44,57 +65,7 @@ export default class AbstractApplicationTestCase extends AbstractTestCase {
     return this.application.resolveRegistration('router:main');
   }
 
-  get appRouter() {
-    return this.applicationInstance.lookup('router:main');
-  }
-
-  teardown() {
-    runDestroy(this.applicationInstance);
-    runDestroy(this.application);
-  }
-
-  visit(url, options) {
-    let { applicationInstance } = this;
-
-    if (applicationInstance) {
-      return this.runTask(() => applicationInstance.visit(url, options));
-    } else {
-      return this.runTask(() => {
-        return this.application.visit(url, options).then(instance => {
-          this.applicationInstance = instance;
-        });
-      });
-    }
-  }
-
-  transitionTo() {
-    return run(this.appRouter, 'transitionTo', ...arguments);
-  }
-
-  compile(string, options) {
+  compile(/* string, options */) {
     return compile(...arguments);
   }
-
-  add(specifier, factory) {
-    this.resolver.add(specifier, factory);
-  }
-
-  addTemplate(templateName, templateString) {
-    this.resolver.add(`template:${templateName}`, this.compile(templateString, {
-      moduleName: templateName
-    }));
-  }
-
-  addComponent(name, { ComponentClass = null, template = null }) {
-    if (ComponentClass) {
-      this.resolver.add(`component:${name}`, ComponentClass);
-    }
-
-    if (typeof template === 'string') {
-      this.resolver.add(`template:components/${name}`, this.compile(template, {
-        moduleName: `components/${name}`
-      }));
-    }
-  }
-
 }

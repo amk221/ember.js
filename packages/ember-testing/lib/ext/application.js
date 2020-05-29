@@ -1,21 +1,15 @@
-import { Application as EmberApplication } from 'ember-application';
+import EmberApplication from '@ember/application';
 import setupForTesting from '../setup_for_testing';
 import { helpers } from '../test/helpers';
-import TestPromise, {
-  resolve,
-  getLastPromise
-} from '../test/promise';
+import TestPromise, { resolve, getLastPromise } from '../test/promise';
 import run from '../test/run';
 import { invokeInjectHelpersCallbacks } from '../test/on_inject_helpers';
-import {
-  asyncStart,
-  asyncEnd
-} from '../test/adapter';
+import { asyncStart, asyncEnd } from '../test/adapter';
 
 EmberApplication.reopen({
   /**
    This property contains the testing helpers for the current application. These
-   are created once you call `injectTestHelpers` on your `Ember.Application`
+   are created once you call `injectTestHelpers` on your `Application`
    instance. The included helpers are also available on the `window` object by
    default, but can be used from this object on the individual application also.
 
@@ -41,7 +35,6 @@ EmberApplication.reopen({
   */
   originalMethods: {},
 
-
   /**
   This property indicates whether or not this application is currently in
   testing mode. This is set when `setupForTesting` is called on the current
@@ -60,7 +53,8 @@ EmberApplication.reopen({
     the app when your tests are ready to run. It also sets the router's
     location to 'none', so that the window's location will not be modified
     (preventing both accidental leaking of state between tests and interference
-    with your testing framework).
+    with your testing framework). `setupForTesting` should only be called after
+    setting a custom `router` class (for example `App.Router = Router.extend(`).
 
     Example:
 
@@ -76,8 +70,8 @@ EmberApplication.reopen({
 
     this.testing = true;
 
-    this.Router.reopen({
-      location: 'none'
+    this.resolveRegistration('router:main').reopen({
+      location: 'none',
     });
   },
 
@@ -122,7 +116,7 @@ EmberApplication.reopen({
       willDestroy() {
         this._super(...arguments);
         this.removeTestHelpers();
-      }
+      },
     });
 
     this.testHelpers = {};
@@ -149,7 +143,9 @@ EmberApplication.reopen({
     @method removeTestHelpers
   */
   removeTestHelpers() {
-    if (!this.helperContainer) { return; }
+    if (!this.helperContainer) {
+      return;
+    }
 
     for (let name in helpers) {
       this.helperContainer[name] = this.originalMethods[name];
@@ -157,7 +153,7 @@ EmberApplication.reopen({
       delete this.testHelpers[name];
       delete this.originalMethods[name];
     }
-  }
+  },
 });
 
 // This method is no longer needed

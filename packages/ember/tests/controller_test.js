@@ -1,6 +1,6 @@
-import { Controller } from 'ember-runtime';
-import { moduleFor, ApplicationTestCase } from 'internal-test-helpers';
-import { Component } from 'ember-glimmer';
+import Controller from '@ember/controller';
+import { moduleFor, ApplicationTestCase, runTask } from 'internal-test-helpers';
+import { Component } from '@ember/-internals/glimmer';
 
 /*
  In Ember 1.x, controllers subtly affect things like template scope
@@ -10,29 +10,35 @@ import { Component } from 'ember-glimmer';
  from the runtime up to the templating layer.
 */
 
-moduleFor('Template scoping examples', class extends ApplicationTestCase {
-  ['@test Actions inside an outlet go to the associated controller'](assert) {
-    this.add('controller:index', Controller.extend({
-      actions: {
-        componentAction() {
-          assert.ok(true, 'controller received the action');
-        }
-      }
-    }));
+moduleFor(
+  'Template scoping examples',
+  class extends ApplicationTestCase {
+    ['@test Actions inside an outlet go to the associated controller'](assert) {
+      this.add(
+        'controller:index',
+        Controller.extend({
+          actions: {
+            componentAction() {
+              assert.ok(true, 'controller received the action');
+            },
+          },
+        })
+      );
 
-    this.addComponent('component-with-action', {
-      ComponentClass: Component.extend({
-        classNames: ['component-with-action'],
-        click() {
-          this.sendAction();
-        }
-      }),
-    });
+      this.addComponent('component-with-action', {
+        ComponentClass: Component.extend({
+          classNames: ['component-with-action'],
+          click() {
+            this.action();
+          },
+        }),
+      });
 
-    this.addTemplate('index', '{{component-with-action action="componentAction"}}');
+      this.addTemplate('index', '{{component-with-action action=(action "componentAction")}}');
 
-    return this.visit('/').then(() => {
-      this.runTask(() => this.$('.component-with-action').click());
-    });
+      return this.visit('/').then(() => {
+        runTask(() => this.$('.component-with-action').click());
+      });
+    }
   }
-});
+);

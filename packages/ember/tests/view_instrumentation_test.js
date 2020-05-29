@@ -1,69 +1,47 @@
-import {
-  run,
-  instrumentationSubscribe as subscribe,
-  instrumentationReset as reset
-} from 'ember-metal';
-import { jQuery as $ } from 'ember-views';
-import { Application } from 'ember-application';
-import { compile } from 'ember-template-compiler';
-import { setTemplates, setTemplate } from 'ember-glimmer';
+import { subscribe, reset } from '@ember/instrumentation';
+import { moduleFor, ApplicationTestCase } from 'internal-test-helpers';
 
-let App, $fixture;
+moduleFor(
+  'View Instrumentation',
+  class extends ApplicationTestCase {
+    constructor() {
+      super();
+      this.addTemplate('application', `{{outlet}}`);
+      this.addTemplate('index', `<h1>Index</h1>`);
+      this.addTemplate('posts', `<h1>Posts</h1>`);
 
-function setupExample() {
-  // setup templates
-  setTemplate('application', compile('{{outlet}}'));
-  setTemplate('index', compile('<h1>Index</h1>'));
-  setTemplate('posts', compile('<h1>Posts</h1>'));
-
-  App.Router.map(function() {
-    this.route('posts');
-  });
-}
-
-function handleURL(path) {
-  let router = App.__container__.lookup('router:main');
-  return run(router, 'handleURL', path);
-}
-
-QUnit.module('View Instrumentation', {
-  setup() {
-    run(() => {
-      App = Application.create({
-        rootElement: '#qunit-fixture'
+      this.router.map(function() {
+        this.route('posts');
       });
-      App.deferReadiness();
+    }
+    teardown() {
+      reset();
+      super.teardown();
+    }
 
-      App.Router.reopen({
-        location: 'none'
+    ['@test Nodes without view instances are instrumented'](assert) {
+      let called = false;
+
+      subscribe('render', {
+        before() {
+          called = true;
+        },
+        after() {},
       });
-    });
 
-    $fixture = $('#qunit-fixture');
-    setupExample();
-  },
+      return this.visit('/')
+        .then(() => {
+          assert.equal(this.textValue(), 'Index', 'It rendered the correct template');
 
-  teardown() {
-    reset();
-    run(App, 'destroy');
-    App = null;
-    setTemplates({});
+          assert.ok(called, 'Instrumentation called on first render');
+          called = false;
+
+          return this.visit('/posts');
+        })
+        .then(() => {
+          assert.equal(this.textValue(), 'Posts', 'It rendered the correct template');
+          assert.ok(called, 'Instrumentation called on transition to non-view backed route');
+        });
+    }
   }
-});
-
-QUnit.test('Nodes without view instances are instrumented', function(assert) {
-  let called = false;
-  subscribe('render', {
-    before() {
-      called = true;
-    },
-    after() {}
-  });
-  run(App, 'advanceReadiness');
-  assert.equal($fixture.text(), 'Index', 'It rendered the right template');
-  assert.ok(called, 'Instrumentation called on first render');
-  called = false;
-  handleURL('/posts');
-  assert.equal($fixture.text(), 'Posts', 'It rendered the right template');
-  assert.ok(called, 'instrumentation called on transition to non-view backed route');
-});
+);

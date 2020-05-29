@@ -1,70 +1,101 @@
-import { run } from 'ember-metal';
-import { compile } from 'ember-template-compiler';
-import { Application } from 'ember-application';
-import { Component } from 'ember-glimmer';
-import { jQuery } from 'ember-views';
+import { moduleFor, ApplicationTestCase, runTask } from 'internal-test-helpers';
+import Application from '@ember/application';
+import { Component } from '@ember/-internals/glimmer';
+import { getOwner } from '@ember/-internals/owner';
+import { assign } from '@ember/polyfills';
+import { resolve } from 'rsvp';
 
-let App1, App2, actions;
+moduleFor(
+  'View Integration',
+  class extends ApplicationTestCase {
+    constructor() {
+      document.getElementById('qunit-fixture').innerHTML = `
+      <div id="one"></div>
+      <div id="two"></div>
+    `;
+      super();
+      runTask(() => {
+        this.createSecondApplication();
+      });
+    }
 
-function startApp(rootElement) {
-  let application;
+    get applicationOptions() {
+      return assign(super.applicationOptions, {
+        rootElement: '#one',
+        router: null,
+      });
+    }
 
-  run(() => {
-    application = Application.create({
-      rootElement
-    });
-    application.deferReadiness();
+    createSecondApplication(options) {
+      let { applicationOptions } = this;
+      let secondApplicationOptions = { rootElement: '#two' };
+      let myOptions = assign(applicationOptions, secondApplicationOptions, options);
+      this.secondApp = Application.create(myOptions);
+      this.secondResolver = this.secondApp.__registry__.resolver;
+      return this.secondApp;
+    }
 
-    application.Router.reopen({
-      location: 'none'
-    });
+    teardown() {
+      super.teardown();
 
-    let registry = application.__registry__;
-
-    registry.register('component:special-button', Component.extend({
-      actions: {
-        doStuff() {
-          actions.push(rootElement);
-        }
+      if (this.secondApp) {
+        runTask(() => {
+          this.secondApp.destroy();
+        });
       }
-    }));
-    registry.register('template:application', compile('{{outlet}}', { moduleName: 'application' }));
-    registry.register('template:index', compile('<h1>Node 1</h1>{{special-button}}', { moduleName: 'index' }));
-    registry.register('template:components/special-button', compile('<button class=\'do-stuff\' {{action \'doStuff\'}}>Button</button>', { moduleName: 'components/special-button' }));
-  });
+    }
 
-  return application;
-}
+    addFactoriesToResolver(actions, resolver) {
+      resolver.add(
+        'component:special-button',
+        Component.extend({
+          actions: {
+            doStuff() {
+              let rootElement = getOwner(this).application.rootElement;
+              actions.push(rootElement);
+            },
+          },
+        })
+      );
 
-function handleURL(application, path) {
-  let router = application.__container__.lookup('router:main');
-  return run(router, 'handleURL', path);
-}
+      resolver.add(
+        'template:index',
+        this.compile(
+          `
+        <h1>Node 1</h1>{{special-button}}
+      `,
+          {
+            moduleName: 'my-app/templates/index.hbs',
+          }
+        )
+      );
+      resolver.add(
+        'template:components/special-button',
+        this.compile(
+          `
+        <button class='do-stuff' {{action 'doStuff'}}>Button</button>
+      `,
+          {
+            moduleName: 'my-app/templates/components/special-button.hbs',
+          }
+        )
+      );
+    }
 
-QUnit.module('View Integration', {
-  setup() {
-    actions = [];
-    jQuery('#qunit-fixture').html('<div id="app-1"></div><div id="app-2"></div>');
-    App1 = startApp('#app-1');
-    App2 = startApp('#app-2');
-  },
+    [`@test booting multiple applications can properly handle events`](assert) {
+      let actions = [];
+      this.addFactoriesToResolver(actions, this.resolver);
+      this.addFactoriesToResolver(actions, this.secondResolver);
 
-  teardown() {
-    run(App1, 'destroy');
-    run(App2, 'destroy');
-    App1 = App2 = null;
+      return resolve()
+        .then(() => this.application.visit('/'))
+        .then(() => this.secondApp.visit('/'))
+        .then(() => {
+          document.querySelector('#two .do-stuff').click();
+          document.querySelector('#one .do-stuff').click();
+
+          assert.deepEqual(actions, ['#two', '#one']);
+        });
+    }
   }
-});
-
-QUnit.test('booting multiple applications can properly handle events', function(assert) {
-  run(App1, 'advanceReadiness');
-  run(App2, 'advanceReadiness');
-
-  handleURL(App1, '/');
-  handleURL(App2, '/');
-
-  jQuery('#app-2 .do-stuff').click();
-  jQuery('#app-1 .do-stuff').click();
-
-  assert.deepEqual(actions, ['#app-2', '#app-1']);
-});
+);

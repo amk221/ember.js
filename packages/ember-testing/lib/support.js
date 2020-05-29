@@ -1,11 +1,10 @@
-import { warn } from 'ember-debug';
-import { jQuery } from 'ember-views';
+import { warn } from '@ember/debug';
+import { jQuery, jQueryDisabled } from '@ember/-internals/views';
 
-import { environment } from 'ember-environment';
+import { hasDOM } from '@ember/-internals/browser-environment';
 
 /**
   @module ember
-  @submodule ember-testing
 */
 
 const $ = jQuery;
@@ -29,7 +28,7 @@ function testCheckboxClick(handler) {
     .remove();
 }
 
-if (environment.hasDOM && typeof $ === 'function') {
+if (hasDOM && !jQueryDisabled) {
   $(function() {
     /*
       Determine whether a checkbox checked using jQuery's "click" method will have
@@ -44,22 +43,20 @@ if (environment.hasDOM && typeof $ === 'function') {
         $.event.special.click = {
           // For checkbox, fire native event so checked state will be right
           trigger() {
-            if ($.nodeName(this, 'input') && this.type === 'checkbox' && this.click) {
+            if (this.nodeName === 'INPUT' && this.type === 'checkbox' && this.click) {
               this.click();
               return false;
             }
-          }
+          },
         };
       }
     });
 
     // Try again to verify that the patch took effect or blow up.
     testCheckboxClick(function() {
-      warn(
-        'clicked checkboxes should be checked! the jQuery patch didn\'t work',
-        this.checked,
-        { id: 'ember-testing.test-checkbox-click' }
-      );
+      warn("clicked checkboxes should be checked! the jQuery patch didn't work", this.checked, {
+        id: 'ember-testing.test-checkbox-click',
+      });
     });
   });
 }

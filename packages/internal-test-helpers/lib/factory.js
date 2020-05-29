@@ -1,6 +1,6 @@
 function setProperties(object, properties) {
   for (let key in properties) {
-    if (properties.hasOwnProperty(key)) {
+    if (Object.prototype.hasOwnProperty.call(properties, key)) {
       object[key] = properties[key];
     }
   }
@@ -9,8 +9,6 @@ function setProperties(object, properties) {
 let guids = 0;
 
 export default function factory() {
-  /*jshint validthis: true */
-
   function Klass(options) {
     setProperties(this, options);
     this._guid = guids++;

@@ -1,46 +1,24 @@
-language: node_js
-sudo: required
-dist: trusty
+branches:
+  only:
+  - master
+  - beta
+  - release
+  # release branches
+  - /^(?:release|lts)-\d+-\d+$/
+  # npm version tags
+  - /^v\d+\.\d+\.\d+/
 
+language: node_js
 node_js:
-  - "6"
+  - "10"
 
 addons:
   firefox: "latest"
 
-cache:
-  directories:
-  - $HOME/.yarn-cache
-
-before_install:
-- |
-    phantomjs --version
-    export DISPLAY=:99.0
-    sh -e /etc/init.d/xvfb start
-
-    sudo apt-key adv --fetch-keys http://dl.yarnpkg.com/debian/pubkey.gpg
-    echo "deb http://dl.yarnpkg.com/debian/ stable main" | sudo tee /etc/apt/sources.list.d/yarn.list
-    sudo apt-get update -qq
-    sudo apt-get install -y -qq yarn
-    yarn --version
-
-install:
-- |
-    yarn install
-
-after_success:
-  - "./bin/publish_builds"
-
-branches:
-  only:
-    - master
-    - beta
-    - stable
-
 env:
   global:
-    - SAUCE_USERNAME=ember-ci
-    - SAUCE_ACCESS_KEY=b5cff982-069f-4a0d-ac34-b77e57c2e295
+    - BROWSERSTACK_USERNAME=emberjscoreteam1
+    - BROWSERSTACK_ACCESS_KEY=YsPxXKcahx9XszyHS2Gr
     - DISABLE_SOURCE_MAPS=true
     - BROCCOLI_ENV=production
     - S3_BUCKET_NAME=builds.emberjs.com
@@ -48,7 +26,6 @@ env:
     - secure: ! 'KXJmcGLpnxnPmmei/qPNVcdQxLX1xyYIaVocinQ0YAjtBvCtAwg63EWMFnGp
 
       VIzUNikE+Cej3g+nwEdDJiL1c9NFPL+zCnriR2iMVjPak+IQaG3YcMm0T+hY
-
       /WLEPAquZBKw1gU6lBEUuDumTlkXQQdHz3cJYoidAXz3uV1EXIU='
     - secure: ! 'qCW0BVNFuQjAI53pvvE6oeGxtEdZ+RlvcCpYjU4vxEjedidEEcHKtIVh7d7J
 
@@ -56,13 +33,88 @@ env:
 
       I/BFT0MbnR6JVCZiPV7TCWPgY1gvgZ6TEEIKGqauDMUBdL8ZK6I='
     - secure: e0yxVfwVW61d3Mi/QBOsY6Rfd1mZd3VXUd9xNRoz/fkvQJRuVwDe7oG3NOuJ4LZzvMw7BJ+zpDV9D8nKhAyPEEOgpkkMHUB7Ds83pHG4qSMzm4EAwBCadDLXCQirldz8dzN5FAqgGucXoj5fj/p2SKOkO6qWIZveGr8pdBJEG1E=
-  matrix:
-    - TEST_SUITE=each-package-tests PUBLISH=true
-    - TEST_SUITE=built-tests EMBER_ENV=production DISABLE_JSCS=true DISABLE_JSHINT=true
-    - TEST_SUITE=old-jquery-and-extend-prototypes DISABLE_JSCS=true DISABLE_JSHINT=true
-    - TEST_SUITE=node DISABLE_JSCS=true DISABLE_JSHINT=true
-    - TEST_SUITE=blueprints
-    - TEST_SUITE=travis-browsers DISABLE_JSCS=true DISABLE_JSHINT=true
-    - TEST_SUITE=sauce
-    - TEST_SUITE=allow-backtracking-rerender ALLOW_BACKTRACKING=true
-    - TEST_SUITE=each-package-tests BUILD_TYPE=alpha PUBLISH=true
+
+cache:
+  yarn: true
+
+stages:
+  - basic tests
+  - additional tests
+  - name: deploy
+    if: type IN (push)
+
+before_install:
+  - curl -o- -L https://yarnpkg.com/install.sh | bash
+  - export PATH=$HOME/.yarn/bin:$PATH
+
+  # install the most recent `npm version`
+  # used when publishing to build a properly packed tarball
+  - npm i -g npm
+
+install:
+  - yarn install --frozen-lockfile --non-interactive
+
+jobs:
+  include:
+    - stage: Basic Tests
+      name: Debug and Prebuilt (All Tests by Package + Canary Features + Optional Jquery)
+      env: TEST_SUITE=each-package
+      script:
+        - yarn ember build
+        - yarn test
+
+    - name: Linting
+      script:
+        - yarn lint
+
+    - stage: Additional Tests
+      name: Browserstack Tests (Safari, Edge, IE11)
+      env: SHOULD_TRANSPILE=true
+      script:
+        - yarn ember build
+        - yarn test:browserstack
+
+    - name: Production (All Tests + Canary Features)
+      script:
+        - yarn ember build -prod
+        - yarn test
+
+    - name: Production (All Tests + Canary Features + Debug Render Tree)
+      env: DEBUG_RENDER_TREE=true
+      script:
+        - yarn ember build -prod
+        - yarn test
+
+    - name: Old Jquery and Extend Prototypes
+      env: TEST_SUITE=old-jquery-and-extend-prototypes
+      script:
+        - yarn ember build
+        - yarn test
+
+    - name: Node.js Tests
+      script:
+        - yarn ember build -prod
+        - yarn test:node
+
+    - name: Blueprint Tests
+      script:
+        - yarn test:blueprints
+
+    - name: Browser Tests (Firefox)
+      script:
+        - yarn ember build
+        - yarn ember test -c testem.travis-browsers.js
+
+    - stage: deploy
+      env:
+      - PUBLISH=true
+      script:
+        - "./bin/publish_builds"
+
+    - if: branch = master
+      env:
+      - BUILD_TYPE=alpha
+      - OVERRIDE_FEATURES=EMBER_METAL_TRACKED_PROPERTIES
+      - PUBLISH=true
+      script:
+        - "./bin/publish_builds"

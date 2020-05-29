@@ -1,120 +1,120 @@
-import { run } from 'ember-metal';
-import {
-  Object as EmberObject,
-  Controller,
-  A as emberA
-} from 'ember-runtime';
-import { jQuery } from 'ember-views';
-import Test from '../test';
-import { Route as EmberRoute } from 'ember-routing';
-import { Application as EmberApplication } from 'ember-application';
-import { compile } from 'ember-template-compiler';
-import { setTemplates, setTemplate } from 'ember-glimmer';
+import { moduleFor, AutobootApplicationTestCase, runTask } from 'internal-test-helpers';
+import Test from '../lib/test';
 
-var App, find, visit;
-var originalAdapter = Test.adapter;
+import { EMBER_ROUTING_MODEL_ARG } from '@ember/canary-features';
+import { A as emberA } from '@ember/-internals/runtime';
+import { Route } from '@ember/-internals/routing';
+import { jQueryDisabled } from '@ember/-internals/views';
 
-QUnit.module('ember-testing Integration', {
-  setup() {
-    jQuery('<div id="ember-testing-container"><div id="ember-testing"></div></div>').appendTo('body');
-    run(function() {
-      setTemplate('people', compile('<div>{{#each model as |person|}}<div class="name">{{person.firstName}}</div>{{/each}}</div>'));
-      setTemplate('application', compile('{{outlet}}'));
+moduleFor(
+  'ember-testing Integration tests of acceptance',
+  class extends AutobootApplicationTestCase {
+    constructor() {
+      super();
 
-      App = EmberApplication.create({
-        rootElement: '#ember-testing'
-      });
+      this.modelContent = [];
+      this._originalAdapter = Test.adapter;
 
-      App.Router.map(function() {
-        this.route('people', { path: '/' });
-      });
+      runTask(() => {
+        this.createApplication();
 
-      App.PeopleRoute = EmberRoute.extend({
-        model() {
-          return App.Person.find();
+        if (EMBER_ROUTING_MODEL_ARG) {
+          this.addTemplate(
+            'people',
+            `
+            <div>
+              {{#each @model as |person|}}
+                <div class="name">{{person.firstName}}</div>
+              {{/each}}
+            </div>
+            `
+          );
+        } else {
+          this.addTemplate(
+            'people',
+            `
+            <div>
+              {{#each this.model as |person|}}
+                <div class="name">{{person.firstName}}</div>
+              {{/each}}
+            </div>
+            `
+          );
         }
+
+        this.router.map(function() {
+          this.route('people', { path: '/' });
+        });
+
+        this.add(
+          'route:people',
+          Route.extend({
+            model: () => this.modelContent,
+          })
+        );
+
+        this.application.setupForTesting();
       });
 
-      App.PeopleController = Controller.extend({});
-
-      App.Person = EmberObject.extend({
-        firstName: ''
+      runTask(() => {
+        this.application.reset();
       });
 
-      App.Person.reopenClass({
-        find() {
-          return emberA();
-        }
-      });
+      this.application.injectTestHelpers();
+    }
 
-      App.setupForTesting();
-    });
+    teardown() {
+      super.teardown();
+      Test.adapter = this._originalAdapter;
+    }
 
-    run(function() {
-      App.reset();
-    });
+    [`@test template is bound to empty array of people`](assert) {
+      if (!jQueryDisabled) {
+        runTask(() => this.application.advanceReadiness());
+        window.visit('/').then(() => {
+          let rows = window.find('.name').length;
+          assert.equal(rows, 0, 'successfully stubbed an empty array of people');
+        });
+      } else {
+        runTask(() => this.application.advanceReadiness());
+        window.visit('/').then(() => {
+          expectAssertion(
+            () => window.find('.name'),
+            'If jQuery is disabled, please import and use helpers from @ember/test-helpers [https://github.com/emberjs/ember-test-helpers]. Note: `find` is not an available helper.'
+          );
+        });
+      }
+    }
 
-    App.injectTestHelpers();
+    [`@test template is bound to array of 2 people`](assert) {
+      if (!jQueryDisabled) {
+        this.modelContent = emberA([]);
+        this.modelContent.pushObject({ firstName: 'x' });
+        this.modelContent.pushObject({ firstName: 'y' });
 
-    find = window.find;
-    visit = window.visit;
-  },
+        runTask(() => this.application.advanceReadiness());
+        window.visit('/').then(() => {
+          let rows = window.find('.name').length;
+          assert.equal(rows, 2, 'successfully stubbed a non empty array of people');
+        });
+      } else {
+        assert.expect(0);
+      }
+    }
 
-  teardown() {
-    App.removeTestHelpers();
-    setTemplates({});
-    jQuery('#ember-testing-container, #ember-testing').remove();
-    run(App, App.destroy);
-    App = null;
-    Test.adapter = originalAdapter;
+    [`@test 'visit' can be called without advanceReadiness.`](assert) {
+      if (!jQueryDisabled) {
+        window.visit('/').then(() => {
+          let rows = window.find('.name').length;
+          assert.equal(
+            rows,
+            0,
+            'stubbed an empty array of people without calling advanceReadiness.'
+          );
+        });
+      } else {
+        assert.expect(0);
+      }
+    }
   }
-});
-
-QUnit.test('template is bound to empty array of people', function() {
-  App.Person.find = function() {
-    return emberA();
-  };
-  run(App, 'advanceReadiness');
-  visit('/').then(function() {
-    var rows = find('.name').length;
-    equal(rows, 0, 'successfully stubbed an empty array of people');
-  });
-});
-
-QUnit.test('template is bound to array of 2 people', function() {
-  App.Person.find = function() {
-    var people = emberA();
-    var first = App.Person.create({ firstName: 'x' });
-    var last = App.Person.create({ firstName: 'y' });
-    run(people, people.pushObject, first);
-    run(people, people.pushObject, last);
-    return people;
-  };
-  run(App, 'advanceReadiness');
-  visit('/').then(function() {
-    var rows = find('.name').length;
-    equal(rows, 2, 'successfully stubbed a non empty array of people');
-  });
-});
-
-QUnit.test('template is again bound to empty array of people', function() {
-  App.Person.find = function() {
-    return emberA();
-  };
-  run(App, 'advanceReadiness');
-  visit('/').then(function() {
-    var rows = find('.name').length;
-    equal(rows, 0, 'successfully stubbed another empty array of people');
-  });
-});
-
-QUnit.test('`visit` can be called without advancedReadiness.', function() {
-  App.Person.find = function() {
-    return emberA();
-  };
-
-  visit('/').then(function() {
-    var rows = find('.name').length;
-    equal(rows, 0, 'stubbed an empty array of people without calling advancedReadiness.');
-  });
-});
+);
